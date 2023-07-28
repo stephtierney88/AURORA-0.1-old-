@@ -1,0 +1,34 @@
+AURORA:
+
+AI-driven User-friendly Responsive Online Recreational Assistant 
+||
+Automated Universal Recreation and Online Responsive AI.
+
+init file ~Context setup, Goals, exceptions|spec cases handeling, code examples shown to ai for controls context...
+
+AURORA agent recieves images & text prompts from USER
+
+AURORA can respond to world around it, pursue goals.
+
+When context window runs low on tokens or command given from USER or certain amount of time has passed a summary is made to HANDOFF to the next instance to maintain continuity via the HANDOFF keyword.
+
+
+
+Other capabilities. Able to be assigned or self assign goals.
+Images are timestamped for sake of better sense chronoception. (track time context)
+TTS* (soon)
+STT* (soon)
+Medium term memory: A chain of HANDOFFs with tags/categories/date (loc sqll db)
+Long term memory. A detail list of events, events of events, categories, categories of categories, tags, and date. (Soon: local SQLlite db, then V DB)
+tokenlimit var (soon--prob tiktoken hmm)
+
+Idea inspired from twitchPlaysPokemon, but instead of reading a chatrooms text, app reads chatGPTs responses then executes code.
+
+
+Parser <--> initprompt.txt (sent to ChatGPT) Starts Loop:
+
+ChatGPT  <-->TextResponse <-->  Parser App<-->  (Parser app executes commands on) PC 
+
+PC<-->Screenshots <--> Parser  <-->  App sends Screenshots or text via api <--> ChatGPT  
+
+if tokenlimit>X||HANDOFF command then generate handoff.txt, else Loop
