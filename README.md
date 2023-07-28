@@ -8,4 +8,4 @@ PC<-->Screenshots <--> Parser  <-->  App sends Screenshots or text via api <--> 
 
 if tokenlimit>X||CMD:HANDOFF then generate handoff.txt, else Loop;
 
-//Basically it's inspired by twitchPlaysPokemon. However the app instead reads chatGPTs chat responses then executes keyboard & mouse inputs. Timestamped screenshots give it //visual context at an interval.
+//Basically it's inspired by twitchPlaysPokemon. However the app instead reads chatGPTs chat responses then executes keyboard & mouse inputs. Timestamped screenshots give it visual context at an interval.
