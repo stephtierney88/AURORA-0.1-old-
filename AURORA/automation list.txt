@@ -1,0 +1,11 @@
+Automation list
+
+~McD simulation (and hence if given an example may be able to operate a screen/buttons), Spam message detect, Captcha solver, Camera Guard, Play Pokemon Blue 
+~ai Drone with paintball gun using blood red paintballs lulz (ai drone sports? Ai drone laser tag/paintball :3 )
+~ai controlled rigged doll & deepfake or similar w stable diffusion model & ai voice clone /VTubers
+~ai controlled characters in games, Dynamic Characters; npcs, rival, temporary control assist ect…
+~ai controlled events in games, Dynamic events managers-controller, ai = world or ai = area or ai=dynamics control ie water, storms, events, damage suspense, narratives (events & chars/NPCs)
+~ai parental controls/ai guardians/ai nanny
+~ai controlled servos, home automation assist
+~ai devices (esp if given pyautogui and keyboard py modules or similar or touch controls execution), drones, robots, Persocoms+ :3
+
