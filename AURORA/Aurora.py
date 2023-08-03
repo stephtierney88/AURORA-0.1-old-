@@ -14,10 +14,15 @@ import schedule
 
 character_name = "Aurora"
 
+chat_history = []
+
 # Function to send prompt to ChatGPT
 def send_prompt_to_chatgpt(prompt, image_path=None):
     messages = [{"role": "system", "content": "You are a helpful assistant."}, {"role": "user", "content": prompt}]
     
+    # append user message to chat history
+    chat_history.append({"role": "user", "content": prompt})
+
     if image_path is not None:
         with open(image_path, "rb") as image_file:
             image_data = image_file.read()
@@ -30,6 +35,9 @@ def send_prompt_to_chatgpt(prompt, image_path=None):
         n=1,
         temperature=0.5,
     )
+
+    # append ChatGPT's response to chat history
+    chat_history.append({"role": "system", "content": response.choices[0].message['content'].strip()})
 
     return response.choices[0].message['content'].strip()
 
@@ -83,6 +91,24 @@ if os.path.exists(handoff_file):
         handoff_text = f.read().strip()
     response_text = send_prompt_to_chatgpt(handoff_text)
     process_chatgpt_response(response_text)
+
+def handle_commands(user_input):
+    global chat_history
+
+    if user_input.startswith('HANDOFF'):
+        # Remove any previous Pinned Handoff context
+        chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Handoff context')]
+
+        # Add new Pinned Handoff context
+        handoff_context = user_input[7:]
+        chat_history.append({'role': 'user', 'content': f'Pinned Handoff context: {handoff_context}'})
+        print(f"Pinned Handoff context: {handoff_context}")
+
+    elif user_input == 'CLEAR':
+        # Keep only the Pinned Init summary and Pinned Handoff context
+        chat_history = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context')]
+        print("Chat history cleared, only pinned summaries remain.")
+
 
 # Global variable to control the main loop
 running = True
@@ -225,20 +251,35 @@ def recall_previous_summary(character_name):
 
 
 initiate_and_handoff()
+
 # Function to handle user input
 def user_input_handler():
     while running:
         user_input = input("Type your message, 'recall' to read previous summaries, or 'terminate_instance' to end: ")
-        if user_input.lower() == "terminate_instance":
+
+        if user_input.startswith('INIT'):
+            # Remove any previous Pinned Init summary
+            chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Init summary')]
+
+            # Add new Pinned Init summary
+            init_summary = user_input[5:]
+            chat_history.append({'role': 'user', 'content': f'Pinned Init summary: {init_summary}'})
+            print(f"Pinned Init summary: {init_summary}")
+
+        elif user_input.lower() == 'terminate_instance':
             terminate_instance()
-        elif user_input.lower() == "recall":
+
+        elif user_input.lower() == 'recall':
             recall_previous_summary(character_name)
+
         else:
+            handle_commands(user_input)
             response_text = send_prompt_to_chatgpt(user_input)
             process_chatgpt_response(response_text)
             if buffer:
                 handoff_prompt = buffer[-1]
                 response_text = send_prompt_to_chatgpt(handoff_prompt)
+
 
 # Create a thread for user input handling and start it
 #user_input_thread = threading.Thread(target=lambda: user_input_handler(input("Type your message, 'recall' to read previous summaries, or 'terminate_instance' to end: ")))
