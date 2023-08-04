@@ -1,0 +1,6 @@
+openai
+pillow
+pyautogui
+keyboard
+schedule
+requests
