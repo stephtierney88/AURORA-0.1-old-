@@ -50,6 +50,8 @@ with open(init_file, "r") as f:
 
 # Define process_chatgpt_response function before calling it
 def process_chatgpt_response(response_text):
+    global chat_history
+
     if response_text.startswith("CMD:"):
         command = response_text[4:]
         if len(command) == 1:
@@ -71,6 +73,18 @@ def process_chatgpt_response(response_text):
         x, y = map(int, command.split(','))  # Assuming coordinates are comma-separated
         pyautogui.click(x, y)
         print(f"Moved cursor and clicked at ({x}, {y})")
+    elif response_text.startswith("EXEMPT"):
+        exemption_context = response_text[6:].strip()
+        chat_history.append({'role': 'assistant', 'content': f'Exemption: {exemption_context}'})
+        print(f"Exemption pinned: {exemption_context}")
+    elif response_text.startswith("CLEAR"):
+        clear_command = response_text[6:].strip()
+        if clear_command == "25":
+            clear_chat_history(0.25)
+        elif clear_command == "50":
+            clear_chat_history(0.5)
+        elif clear_command == "75":
+            clear_chat_history(0.75)
     elif response_text.startswith("terminate_instance"):
         shutdown_chatgpt_instance_and_exit()
     else:
@@ -92,10 +106,41 @@ if os.path.exists(handoff_file):
     response_text = send_prompt_to_chatgpt(handoff_text)
     process_chatgpt_response(response_text)
 
+# Define clear_chat_history function with percentage
+def clear_chat_history(percentage):
+    global chat_history
+    # Number of chats to keep
+    num_chats_to_keep = int(len(chat_history) * (1-percentage))
+
+    pinned_entries = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context')]
+    exempted_entries = [entry for entry in chat_history if entry['content'].startswith('Exemption')]
+
+    # Concatenate the lists and sort them by their index in the original chat_history
+    exempted_and_pinned_entries = sorted(pinned_entries + exempted_entries, key=chat_history.index)
+
+    # If the number of chats to keep is less than the length of the exempted_and_pinned_entries list
+    # Keep only the most recent exempted and pinned entries
+    if num_chats_to_keep < len(exempted_and_pinned_entries):
+        chat_history = exempted_and_pinned_entries[-num_chats_to_keep:]
+    else:
+        non_exempted_entries = [entry for entry in chat_history if entry not in exempted_and_pinned_entries]
+        chat_history = non_exempted_entries[-(num_chats_to_keep-len(exempted_and_pinned_entries)):] + exempted_and_pinned_entries
+    print(f"Chat history cleared, {int(percentage*100)}% chats are removed, only most recent {num_chats_to_keep} entries, pinned summaries, and exemptions remain.")
+
+# Function to handle user commands
 def handle_commands(user_input):
     global chat_history
 
-    if user_input.startswith('HANDOFF'):
+    if user_input.startswith('INIT'):
+        # Remove any previous Pinned Init summary
+        chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Init summary')]
+
+        # Add new Pinned Init summary
+        init_summary = user_input[5:]
+        chat_history.append({'role': 'user', 'content': f'Pinned Init summary: {init_summary}'})
+        print(f"Pinned Init summary: {init_summary}")
+
+    elif user_input.startswith('HANDOFF'):
         # Remove any previous Pinned Handoff context
         chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Handoff context')]
 
@@ -104,7 +149,26 @@ def handle_commands(user_input):
         chat_history.append({'role': 'user', 'content': f'Pinned Handoff context: {handoff_context}'})
         print(f"Pinned Handoff context: {handoff_context}")
 
+    elif user_input.startswith('EXEMPT'):
+        exemption_context = user_input[7:]
+        chat_history.append({'role': 'user', 'content': f'Exemption: {exemption_context}'})
+        print(f"Exemption pinned: {exemption_context}")
+
     elif user_input == 'CLEAR':
+        # Keep only the Pinned Init summary, Pinned Handoff context and Exemptions
+        chat_history = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context') or entry['content'].startswith('Exemption')]
+        print("Chat history cleared, only pinned summaries and exemptions remain.")
+
+    elif user_input.startswith('CLEAR50'):
+        clear_chat_history(0.5)
+
+    elif user_input.startswith('CLEAR75'):
+        clear_chat_history(0.75)
+
+    elif user_input.startswith('CLEAR90'):
+        clear_chat_history(0.9)
+
+    elif user_input == 'CLEARALL':
         # Keep only the Pinned Init summary and Pinned Handoff context
         chat_history = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context')]
         print("Chat history cleared, only pinned summaries remain.")
