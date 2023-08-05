@@ -1,16 +1,17 @@
-import openai
+# AI conversation powered by OpenAI's GPT-4 via ChatGPT API
+# Additional AI dev assistance provided by Anthropic's Claude model
+
+import openai # OpenAI API client library
+import pyautogui, keyboard, threading,  
 import time
 from PIL import ImageGrab
 import os
-import keyboard
-import pyautogui
-import threading
 import sys
 import datetime
 import requests
 from io import BytesIO
-from PIL import Image
-import schedule
+from PIL import Image # Python standard libraries
+import schedule # scheduler library by author_name
 
 character_name = "Aurora"
 
