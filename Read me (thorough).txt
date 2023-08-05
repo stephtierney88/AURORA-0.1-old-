@@ -75,6 +75,8 @@ PC<-->Screenshots <--> Parser  <-->  App sends Screenshots or text via api <--> 
 
 if tokenlimit>X||HANDOFF command then generate handoff.txt, else Loop
 
+Then some code on the parser app to interface with the commands such as to perform as a virtual mouse, virtual keyboard, or (soon) virtual touchscreen actions.
+
 3. Prerequisites
 
     Python 3.6 or higher
