@@ -61,6 +61,6 @@ For the AI (in process_chatgpt_response function):
     CLEAR - Clear percentage of chat history
     terminate_instance - Shut down assistant
     */ escaped command text
-    /* closed escaped text
+    /* closed escape 
 
 Hand off this summary to for maintaining continuity between context window limitations and sessions."
