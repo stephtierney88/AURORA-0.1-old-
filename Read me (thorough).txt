@@ -64,7 +64,7 @@ but instead of reading a chatrooms text, app reads chatGPTs responses then execu
 So basically 
 
                                   twitchPlaysPokemon        +    screenshots       +     ChatGPT 
-or (Parser app reads chat responses, then executes code)   +   (visual context)    +       (ai)
+or (Parser app reads chat responses, then executes code)    +   (visual context)   +       (ai)
 
 
 Parser <--> initprompt.txt (sent to ChatGPT) Starts Loop:
