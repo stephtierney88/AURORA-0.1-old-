@@ -15,6 +15,7 @@ import schedule
 character_name = "Aurora"
 
 chat_history = []
+disable_commands = False  # Global boolean variable to track whether command processing is currently disabled
 
 # Function to send prompt to ChatGPT
 def send_prompt_to_chatgpt(prompt, image_path=None):
@@ -51,6 +52,18 @@ with open(init_file, "r") as f:
 # Define process_chatgpt_response function before calling it
 def process_chatgpt_response(response_text):
     global chat_history
+    global disable_commands
+
+    if response_text.startswith('/*'):
+        disable_commands = True
+        return  # Return early
+    elif response_text.startswith('*/'):
+        disable_commands = False
+        return  # Return early
+
+    if disable_commands:
+        print("Command processing is currently disabled.")
+        return  # Return early
 
     if response_text.startswith("CMD:"):
         command = response_text[4:]
@@ -130,7 +143,20 @@ def clear_chat_history(percentage):
 # Function to handle user commands
 def handle_commands(user_input):
     global chat_history
+    global disable_commands
+    while running:
+        user_input = input("Type your message, 'recall' to read previous summaries, or 'terminate_instance' to end: ")
 
+        if user_input.startswith('/*'):
+            disable_commands = True
+            continue  # Skip the rest of the loop
+        elif user_input.startswith('*/'):
+            disable_commands = False
+            continue  # Skip the rest of the loop
+
+        if disable_commands:
+            print("Command processing is currently disabled.")
+            continue  # Skip the rest of the loop
     if user_input.startswith('INIT'):
         # Remove any previous Pinned Init summary
         chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Init summary')]
