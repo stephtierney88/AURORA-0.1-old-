@@ -23,6 +23,7 @@ Layer
     Version 1 - Basic Programmable Window: This first version is a blank canvas that the AI can manipulate dynamically. 
 It's important at this stage to build robust error handling to ensure that dynamic programming changes don't crash the system.  
 Stability and error handling upfront will ensure a solid foundation before adding complexity.
+hmm perhaps the portal should run on a hypervisor or some other virtualized abstraction layer separate from the rest of OS in case it crashes.
 
     Version 2 - Enhanced Toolset: Start by providing some basic modules and pre-set visuals for common tasks. 
 Include modules for displaying text, creating simple shapes, handling user input, etc. 
