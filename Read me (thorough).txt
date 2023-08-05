@@ -21,6 +21,7 @@ STT* (soon)
 Medium term memory: A chain of HANDOFFs with tags/categories/date (loc sqll db)
 Long term memory. A detail list of events, events of events, categories, categories of categories, tags, and date. (Soon: local SQLlite db, then V DB)
 tokenlimit var (soon--prob tiktoken hmm)
+Pinned Messages & exemptions (from deletions via CLEAR)
 
 Idea inspired from twitchPlaysPokemon, but instead of reading a chatrooms text, app reads chatGPTs responses then executes code.
 
@@ -32,3 +33,37 @@ ChatGPT  <-->TextResponse <-->  Parser App<-->  (Parser app executes commands on
 PC<-->Screenshots <--> Parser  <-->  App sends Screenshots or text via api <--> ChatGPT  
 
 if tokenlimit>X||HANDOFF command then generate handoff.txt, else Loop
+
+
+For the user (in handle_commands function):
+
+    INIT - Pin a new initial summary
+    HANDOFF - Pin a new handoff summary
+    EXEMPT - Pin an exemption to keep in chat history
+    CLEAR - Clear chat history except pinned and exempted chats
+    CLEAR50 - Clear 50% of chat history
+    CLEAR75 - Clear 75% of chat history
+    CLEAR90 - Clear 90% of chat history
+    CLEARALL - Clear all history except pinned summaries
+    terminate_instance - Shut down assistant and save handoff
+
+For the AI (in process_chatgpt_response function):
+
+    CMD: - Execute keyboard command
+    CURSORCMD: - Move mouse cursor
+    HANDOFF: - Save handoff summary
+    EXEMPT: - Pin exemption context
+    CLEAR - Clear percentage of chat history
+    terminate_instance - Shut down assistant
+
+Here is a brief overview of the system functionality:
+
+This code creates an AI assistant that can converse through ChatGPT, take screenshots, run scheduled tasks, and maintain persistent context across instances.
+
+The user can pinned important summaries for initialization and handoffs. Exemptions can be pinned to preserve certain chat history. The chat log can be cleared at various levels while keeping pinned content.
+
+The AI assistant processes directives to execute keyboard/mouse commands, save handoff summaries, and clear chat history. It maintains exemption and pinned data across instances.
+
+Daily screenshots and summaries are logged to track interactions. The handoff summary allows smooth transitions between assistant instances.
+
+This framework allows extended conversations with an AI agent while maintaining control over context size and memory. The logs provide transparency and ability to review interactions.
