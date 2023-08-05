@@ -9,4 +9,5 @@ Automation list
 ~ai controlled servos, home automation assist
 ~ai devices (esp if given pyautogui and keyboard py modules or similar or touch controls execution), drones, robots, Persocoms+ :3
 
-When vision comes out, Ill begin testing my assistant to see if code works as expected. Then ill add support (like touch and the system) for other OSs a little bit with some checks. Finally I'll build "The WINDOW", while in beta reference is "The Window", final name will be The PORTAL. 
+When vision comes out, Ill begin testing my assistant to see if code works as expected. Then ill add support (like touch and the system) for other OSs a little bit with some checks. 
+Finally I'll build "The WINDOW", while in beta reference is "The Window", final name will be The PORTAL. 
