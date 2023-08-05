@@ -59,7 +59,12 @@ Long term memory. A detail list of events, events of events, categories, categor
 tokenlimit var (soon--prob tiktoken hmm)
 Pinned Messages & exemptions (from deletions via CLEAR)
 
-Idea inspired from twitchPlaysPokemon, but instead of reading a chatrooms text, app reads chatGPTs responses then executes code.
+Idea inspired from twitchPlaysPokemon, 
+but instead of reading a chatrooms text, app reads chatGPTs responses then executes code. 
+So basically 
+
+                                  twitchPlaysPokemon        +    screenshots       +     ChatGPT 
+or (Parser app reads chat responses, then executes code)   +   (visual context)    +       (ai)
 
 
 Parser <--> initprompt.txt (sent to ChatGPT) Starts Loop:
