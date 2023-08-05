@@ -38,7 +38,7 @@ Table of Contents
 1.
 AI-driven User-friendly Responsive Online Recreational Assistant 
 ||
-Automated Universal Recreation and Online Responsive AI.
+Automated Universal Recreation Online Responsive AI.
 
 init file ~Context setup, Goals, exceptions|spec cases handeling, code examples shown to ai for controls context...
 
