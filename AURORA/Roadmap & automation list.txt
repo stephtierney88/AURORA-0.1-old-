@@ -20,13 +20,21 @@ Transactive
 Artificial
 Layer
 
-    Version 1 - Basic Programmable Window: This first version is a blank canvas that the AI can manipulate dynamically. It's important at this stage to build robust error handling to ensure that dynamic programming changes don't crash the system.  Stability and error handling upfront will ensure a solid foundation before adding complexity.
+    Version 1 - Basic Programmable Window: This first version is a blank canvas that the AI can manipulate dynamically. 
+It's important at this stage to build robust error handling to ensure that dynamic programming changes don't crash the system.  
+Stability and error handling upfront will ensure a solid foundation before adding complexity.
 
-    Version 2 - Enhanced Toolset: Start by providing some basic modules and pre-set visuals for common tasks. You might want to include modules for displaying text, creating simple shapes, handling user input, etc. Providing modules for text, shapes, input etc gives the AI building blocks to create useful visuals easily.
+    Version 2 - Enhanced Toolset: Start by providing some basic modules and pre-set visuals for common tasks. 
+Include modules for displaying text, creating simple shapes, handling user input, etc. 
+Providing modules for text, shapes, input etc gives the AI building blocks to create useful visuals easily.
 
-    Version 3 - Advanced Visual Effects: You could introduce more sophisticated visual tools such as shaders, particle systems, and more complex animations. These tools would enable the AI to create more visually appealing and engaging outputs. Sophisticated animation and graphics will enable more dynamic, engaging visual interactions.
+    Version 3 - Advanced Visual Effects: You could introduce more sophisticated visual tools such as shaders, particle systems, and more complex animations. 
+These tools would enable the AI to create more visually appealing and engaging outputs. 
+Sophisticated animation and graphics will enable more dynamic, engaging visual interactions.
 
-    Version 4 - Asset Integration: Finally, allow the AI to incorporate pre-existing assets such as images, video clips, or 3D models. This will give the AI an even broader range of outputs. Allowing inclusion of multimedia assets opens up near infinite possibilities for customization.
+    Version 4 - Asset Integration: Finally, allow the AI to incorporate pre-existing assets such as images, video clips, or 3D models. 
+This will give the AI an even broader range of outputs. 
+Allowing inclusion of multimedia assets opens up near infinite possibilities for customization.
 
 
     Expanding interaction modes (touch, voice, gestures)
