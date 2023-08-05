@@ -39,22 +39,25 @@ For the user (in handle_commands function):
 
     INIT - Pin a new initial summary
     HANDOFF - Pin a new handoff summary
-    EXEMPT - Pin an exemption to keep in chat history
+    PIN - Pin an exemption to keep in chat history
     CLEAR - Clear chat history except pinned and exempted chats
     CLEAR50 - Clear 50% of chat history
     CLEAR75 - Clear 75% of chat history
     CLEAR90 - Clear 90% of chat history
     CLEARALL - Clear all history except pinned summaries
     terminate_instance - Shut down assistant and save handoff
-
+    */ escaped command text
+    /* closed escaped text
 For the AI (in process_chatgpt_response function):
 
     CMD: - Execute keyboard command
     CURSORCMD: - Move mouse cursor
     HANDOFF: - Save handoff summary
-    EXEMPT: - Pin exemption context
+    PIN: - Pin exemption context
     CLEAR - Clear percentage of chat history
     terminate_instance - Shut down assistant
+    */ escaped command text
+    /* closed escaped text
 
 Here is a brief overview of the system functionality:
 
