@@ -1,5 +1,41 @@
 AURORA:
 
+Table of Contents
+
+  1.  Introduction
+        1.1 About AURORA
+        1.2 Key Capabilities
+  2.  Architecture Overview
+        2.1 Components
+        2.2 Data Flow
+   3. Setup and Usage
+        3.1 Prerequisites
+        3.2 Installation
+        3.3 Running AURORA
+   4. User Commands
+        4.1 init
+        4.2 handoff
+        4.3 pin
+        4.4 clear
+   5. AI Commands
+        5.1 cmd
+        5.2 cursorcmd
+        5.3 handoff
+        5.4 pin
+        5.5 clear
+   6. Logging and Persistence
+        6.1 Chat History
+        6.2 Daily Summaries
+        6.3 Handoff Summaries
+   7. Configuration
+        7.1 Options
+        7.2 Settings
+   8. Contributing
+        8.1 Guidelines
+        8.2 Development Workflow
+   9. Credits and References
+
+1.
 AI-driven User-friendly Responsive Online Recreational Assistant 
 ||
 Automated Universal Recreation and Online Responsive AI.
@@ -13,7 +49,7 @@ AURORA can respond to world around it, pursue goals.
 When context window runs low on tokens or command given from USER or certain amount of time has passed a summary is made to HANDOFF to the next instance to maintain continuity via the HANDOFF keyword.
 
 
-
+2.
 Other capabilities. Able to be assigned or self assign goals.
 Images are timestamped for sake of better sense chronoception. (track time context)
 TTS* (soon)
@@ -34,7 +70,50 @@ PC<-->Screenshots <--> Parser  <-->  App sends Screenshots or text via api <--> 
 
 if tokenlimit>X||HANDOFF command then generate handoff.txt, else Loop
 
+3. Prerequisites
 
+    Python 3.6 or higher
+    Operating Systems:
+        Windows
+        MacOS
+        Linux
+    An internet connection
+    The following Python modules need to be installed:
+        openai
+        Pillow
+        PyAutoGUI
+        keyboard
+        schedule
+        requests
+    OpenAI API key
+    ChatGPT account (optional)
+
+Installation
+
+    Clone the repository or download the source code
+    Install dependencies:
+
+<!---->
+
+Copy code
+pip install openai pillow pyautogui keyboard schedule requests
+
+3.  Get an OpenAI API key from https://platform.openai.com
+4.  Set the openai.api_key variable in the code to your key
+
+    Run the code:
+
+<!---->
+
+Copy code
+python aurora.py
+
+This covers the core dependencies like Python version, OS compatibility, required modules, and installation steps.
+
+Let me know if you need any clarification or have additional prerequisites to add here. The goal is to provide readers with a clear set of things they need before running the project.
+
+
+4.
 For the user (in handle_commands function):
 
     INIT - Pin a new initial summary
@@ -48,6 +127,8 @@ For the user (in handle_commands function):
     terminate_instance - Shut down assistant and save handoff
     */ escaped command text
     /* closed escaped text
+
+5.
 For the AI (in process_chatgpt_response function):
 
     CMD: - Execute keyboard command
@@ -62,11 +143,27 @@ For the AI (in process_chatgpt_response function):
 Here is a brief overview of the system functionality:
 
 This code creates an AI assistant that can converse through ChatGPT, take screenshots, run scheduled tasks, and maintain persistent context across instances.
-
+6.
 The user can pinned important summaries for initialization and handoffs. Exemptions can be pinned to preserve certain chat history. The chat log can be cleared at various levels while keeping pinned content.
-
+7.
 The AI assistant processes directives to execute keyboard/mouse commands, save handoff summaries, and clear chat history. It maintains exemption and pinned data across instances.
 
 Daily screenshots and summaries are logged to track interactions. The handoff summary allows smooth transitions between assistant instances.
-
+8.
 This framework allows extended conversations with an AI agent while maintaining control over context size and memory. The logs provide transparency and ability to review interactions.
+
+9.
+# AI conversation powered by OpenAI's GPT-4 via ChatGPT API
+# Additional AI dev assistance provided by Anthropic's Claude model
+
+import openai # OpenAI API client library
+import pyautogui, keyboard, threading,  
+import time
+from PIL import ImageGrab
+import os
+import sys
+import datetime
+import requests
+from io import BytesIO
+from PIL import Image # Python standard libraries
+import schedule # scheduler library by author_name
