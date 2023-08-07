@@ -49,6 +49,10 @@ init_file = f"{character_name}_init.txt"
 with open(init_file, "r") as f:
     init_prompt = f.read().strip()
 
+def write_content_to_file(content, file_name):
+    with open(file_name, "w") as f:
+        f.write(content)
+    print(f"Content saved to {file_name}")
 
 # Define process_chatgpt_response function before calling it
 def process_chatgpt_response(response_text):
@@ -155,7 +159,7 @@ def handle_commands(user_input):
     elif user_input.lower() == 'recall':
         recall_previous_summary(character_name)
     
-    if user_input.startswith('INIT'):
+    elif user_input.startswith('INIT'):
         # Remove any previous Pinned Init summary
         chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Init summary')]
 
@@ -174,7 +178,7 @@ def handle_commands(user_input):
         print(f"Pinned Handoff context: {handoff_context}")
 
     elif user_input.startswith('PIN'):
-        exemption_context = user_input[7:]
+        exemption_context = user_input[4:]
         chat_history.append({'role': 'user', 'content': f'Exemption: {exemption_context}'})
         print(f"Exemption pinned: {exemption_context}")
 
@@ -196,6 +200,26 @@ def handle_commands(user_input):
         # Keep only the Pinned Init summary and Pinned Handoff context
         chat_history = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context')]
         print("Chat history cleared, only pinned summaries remain.")
+
+    elif user_input.startswith('SAVEPINNEDINIT'):
+        pinned_init_summaries = [entry['content'][19:] for entry in chat_history if entry['content'].startswith('Pinned Init summary')]
+        write_content_to_file("\n".join(pinned_init_summaries), "pinned_init_summaries.txt")
+
+    elif user_input.startswith('SAVEPINNEDHANDOFF'):
+        pinned_handoff_contexts = [entry['content'][22:] for entry in chat_history if entry['content'].startswith('Pinned Handoff context')]
+        write_content_to_file("\n".join(pinned_handoff_contexts), "pinned_handoff_contexts.txt")
+
+    elif user_input.startswith('SAVEEXEMPTIONS'):
+        exemptions = [entry['content'][10:] for entry in chat_history if entry['content'].startswith('Exemption')]
+        write_content_to_file("\n".join(exemptions), "exemptions.txt")
+
+    elif user_input.startswith('SAVEPINNED'):
+        pinned_entries = [entry['content'] for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context')]
+        write_content_to_file("\n".join(pinned_entries), "pinned_entries.txt")
+
+    elif user_input.startswith('SAVEALL'):
+        all_entries = [f"{entry['role']}: {entry['content']}" for entry in chat_history]
+        write_content_to_file("\n".join(all_entries), "all_entries.txt")
 
 
 # Global variable to control the main loop
