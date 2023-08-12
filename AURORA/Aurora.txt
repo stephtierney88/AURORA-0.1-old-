@@ -2,7 +2,7 @@
 # Additional AI dev assistance provided by Anthropic's Claude model
 
 import openai # OpenAI API client library
-import pyautogui, keyboard, threading,  
+import pyautogui, keyboard, threading  
 import time
 from PIL import ImageGrab
 import os
@@ -12,11 +12,27 @@ import requests
 from io import BytesIO
 from PIL import Image # Python standard libraries
 import schedule # scheduler library by author_name
+from tiktoken import Tokenizer
+from openai import tiktoken
+
+tokenizer = Tokenizer()
 
 character_name = "Aurora"
 
 chat_history = []
+CONTEXT_LENGTH = 2048  # or whatever the max token count for GPT-4 is
 disable_commands = False  # Global boolean variable to track whether command processing is currently disabled
+show_user_text = True
+
+def count_tokens_in_history(chat_history):
+    text = " ".join([entry['content'] for entry in chat_history])
+    tokens_used = len(list(tokenizer.tokenize(text)))
+    return f"{tokens_used} out of {CONTEXT_LENGTH} available"
+
+def threshold_check(current_token_count, total_tokens, threshold_percentage):
+    threshold = total_tokens * threshold_percentage / 100
+    return current_token_count > threshold
+
 
 # Function to send prompt to ChatGPT
 def send_prompt_to_chatgpt(prompt, image_path=None):
@@ -40,8 +56,22 @@ def send_prompt_to_chatgpt(prompt, image_path=None):
 
     # append ChatGPT's response to chat history
     chat_history.append({"role": "system", "content": response.choices[0].message['content'].strip()})
+    
+    # Count tokens and display
+    token_count = count_tokens_in_history(chat_history)
+    
 
+    # Print the user's text if show_user_text is True
+    if show_user_text:
+        print("User text:", prompt)
+
+    # Count tokens and check threshold
+
+    if threshold_check(current_token_count, CONTEXT_LENGTH, 75):  # Assuming CONTEXT_LENGTH is your total token capacity
+        chat_history.append({"role": "system", "content": f"Current token count: {current_count} out of {CONTEXT_LENGTH} available"})
+    print(f"Current token count in chat history: {token_count}")
     return response.choices[0].message['content'].strip()
+
 
 
 # Read the init prompt from a file
@@ -53,6 +83,7 @@ def write_content_to_file(content, file_name):
     with open(file_name, "w") as f:
         f.write(content)
     print(f"Content saved to {file_name}")
+
 
 # Define process_chatgpt_response function before calling it
 def process_chatgpt_response(response_text):
@@ -175,8 +206,15 @@ def process_chatgpt_response(response_text):
         write_content_to_file("\n".join(all_entries), "all_entries.txt")
 
     else:
+    # Count tokens and display
+        token_count = count_tokens_in_history(chat_history)
         print("ChatGPT response:", response_text)
-
+    # Update chat history with the current response
+    chat_history.append({"role": "assistant", "content": response_text})
+    
+    # Count tokens and display
+    token_count = count_tokens_in_history(chat_history)
+    print(f"Current token count in chat history: {token_count}")
 
 
 def initiate_and_handoff():
@@ -219,8 +257,7 @@ def clear_chat_history(percentage):
 def handle_commands(user_input):
     global chat_history
     global disable_commands
-
-    user_input = input("Type your message, 'recall' to read previous summaries, or 'terminate_instance' to end: ")
+    global show_user_text
 
     if user_input.lower() == 'terminate_instance':
         terminate_instance()
@@ -289,6 +326,15 @@ def handle_commands(user_input):
     elif user_input.startswith('SAVEALL'):
         all_entries = [f"{entry['role']}: {entry['content']}" for entry in chat_history]
         write_content_to_file("\n".join(all_entries), "all_entries.txt")
+
+
+    elif user_input == 'HIDE':
+        show_user_text = not show_user_text
+        if show_user_text:
+            print("User text will now be displayed.")
+        else:
+            print("User text will now be hidden.")
+
 
 
 # Global variable to control the main loop
