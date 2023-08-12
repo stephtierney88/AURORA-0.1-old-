@@ -13,14 +13,14 @@ from io import BytesIO
 from PIL import Image # Python standard libraries
 import schedule # scheduler library by author_name
 from tiktoken import Tokenizer
-from openai import tiktoken
+
 
 tokenizer = Tokenizer()
 
 character_name = "Aurora"
 
 chat_history = []
-CONTEXT_LENGTH = 2048  # or whatever the max token count for GPT-4 is
+CONTEXT_LENGTH = 8192  # or whatever the max token count for GPT-4 is
 disable_commands = False  # Global boolean variable to track whether command processing is currently disabled
 show_user_text = True
 
