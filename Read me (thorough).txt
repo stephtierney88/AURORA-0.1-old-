@@ -77,13 +77,17 @@ if tokenlimit>X||HANDOFF command then generate handoff.txt, else Loop
 
 Then some code on the parser app to interface with the commands such as to perform as a virtual mouse, virtual keyboard, or (soon) virtual touchscreen actions.
 
+
+𝑵𝙤𝒕𝙚: When using the API, every time you press "Enter" to send a response to ChatGPT, 𝑬𝙑𝑬𝙍𝒀 token in the CHAT_HISTORY[] array within the model's context limit will be processed.
+
+
 3. Prerequisites
 
     Python 3.6 or higher
     Operating Systems:
-        Windows
-        MacOS
-        Linux
+        Windows  ✓
+        MacOS    ?
+        Linux    ?
     An internet connection
     The following Python modules need to be installed:
         openai
