@@ -72,13 +72,6 @@ def send_prompt_to_chatgpt(prompt, image_path=None):
     print(f"Current token count in chat history: {token_count}")
     return response.choices[0].message['content'].strip()
 
-
-
-# Read the init prompt from a file
-init_file = f"{character_name}_init.txt"
-with open(init_file, "r") as f:
-    init_prompt = f.read().strip()
-
 def write_content_to_file(content, file_name):
     with open(file_name, "w") as f:
         f.write(content)
@@ -224,6 +217,14 @@ def initiate_and_handoff():
         handoff_prompt = buffer[-1]
         response_text = send_prompt_to_chatgpt(handoff_prompt)
 
+
+# Read the init prompt from a file
+init_file = f"{character_name}_init.txt"
+with open(init_file, "r") as f:
+    init_prompt = f.read().strip()
+
+
+
 # Read the handoff summary from a file
 handoff_file = f"{character_name}_handoff.txt"
 if os.path.exists(handoff_file):
@@ -335,38 +336,6 @@ def handle_commands(user_input):
         else:
             print("User text will now be hidden.")
 
-
-
-# Global variable to control the main loop
-running = True
-
-# Set up OpenAI API client
-openai.api_key = "API KEY HERE"
-
-# Initialize ChatGPT API endpoint
-endpoint_url = "https://api.openai.com/v1/chat/completions/gpt-4"
-
-# Time interval between screenshots (in seconds)
-time_interval = 25.5
-
-# Set up screenshot options
-screenshot_options = {
-    "current_window": True,
-    "entire_screen": True,
-}
-
-# Set up buffer and logging folder
-buffer = []
-logging_folder = "screenshots"
-if not os.path.exists(logging_folder):
-    os.makedirs(logging_folder)
-
-
-
-# Send init prompt to ChatGPT
-response_text = send_prompt_to_chatgpt(init_prompt)
-print("ChatGPT response:", response_text)
-
 # Function to check if daily summary has been completed
 def daily_summary_completed(date):
     filename = f"{logging_folder}/daily_summary_{date}.txt"
@@ -477,9 +446,6 @@ def recall_previous_summary(character_name):
     else:
         print("No initial profile summary found.")
 
-
-initiate_and_handoff()
-
 # Function to handle user input
 def user_input_handler():
     global chat_history
@@ -507,13 +473,6 @@ def user_input_handler():
                 handoff_prompt = buffer[-1]
                 response_text = send_prompt_to_chatgpt(handoff_prompt)
 
-
-# Create a thread for user input handling and start it
-#user_input_thread = threading.Thread(target=lambda: user_input_handler(input("Type your message, 'recall' to read previous summaries, or 'terminate_instance' to end: ")))
-user_input_thread = threading.Thread(target=user_input_handler)
-user_input_thread.daemon = True
-user_input_thread.start()
-
 # Function to take a screenshot
 def take_screenshot():
     if screenshot_options["current_window"]:
@@ -535,6 +494,51 @@ def run_scheduled_tasks():
     while running:
         schedule.run_pending()
         time.sleep(1)
+
+
+# Global variable to control the main loop
+running = True
+
+# Set up OpenAI API client
+openai.api_key = "API KEY HERE"
+
+# Initialize ChatGPT API endpoint
+endpoint_url = "https://api.openai.com/v1/chat/completions/gpt-4"
+
+# Time interval between screenshots (in seconds)
+time_interval = 25.5
+
+# Set up screenshot options
+screenshot_options = {
+    "current_window": True,
+    "entire_screen": True,
+}
+
+# Set up buffer and logging folder
+buffer = []
+logging_folder = "screenshots"
+if not os.path.exists(logging_folder):
+    os.makedirs(logging_folder)
+
+
+
+# Send init prompt to ChatGPT
+response_text = send_prompt_to_chatgpt(init_prompt)
+print("ChatGPT response:", response_text)
+
+
+
+
+initiate_and_handoff()
+
+
+
+# Create a thread for user input handling and start it
+#user_input_thread = threading.Thread(target=lambda: user_input_handler(input("Type your message, 'recall' to read previous summaries, or 'terminate_instance' to end: ")))
+user_input_thread = threading.Thread(target=user_input_handler)
+user_input_thread.daemon = True
+user_input_thread.start()
+
 
 # Schedule the screenshot taking function
 schedule.every(time_interval).seconds.do(take_screenshot)
