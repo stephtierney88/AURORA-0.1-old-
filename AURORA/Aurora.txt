@@ -24,7 +24,7 @@ secondary_ais = {} # Dict to track secondary AI instances
 
 def start_secondary_ai(name, role, init_prompt):
   def secondary_ai_process(name, role, init_prompt):
-    openai.api_key = API_KEY
+    openai.api_key = API_KEY  #Change this later!
     
     init_prompt += f"\n\nMy name is {name}. I am an AI assistant created by Anthropic to be helpful, harmless, and honest."
 
@@ -128,132 +128,132 @@ def write_content_to_file(content, file_name):
 def process_chatgpt_response(response_text):
     global chat_history
     global disable_commands
+    global chat_history_lock
 
-    if response_text.startswith('/*'):
-        disable_commands = True
-        return  # Return early
-    elif response_text.startswith('*/'):
-        disable_commands = False
-        return  # Return early
+    with chat_history_lock:
+            if response_text.startswith('/*'):
+                disable_commands = True
+                return  # Return early
+            elif response_text.startswith('*/'):
+                disable_commands = False
+                return  # Return early
+            if disable_commands:
+                print("Command processing is currently disabled.")
+                return  # Return early
+            if response_text.startswith("CMD:"):
+                command = response_text[4:]
+                if len(command) == 1:
+                    keyboard.press_and_release(command)
+                    print(f"Executed command: {command}")
+                else:
+                    pyautogui.write(command)
+                    print(f"Typed string: {command}")
+            elif response_text.startswith("HANDOFF"):
+                handoff_summary = response_text[7:] 
+                buffer.append(handoff_summary)
+                timestamp = int(time.time())
+                with open(f"{logging_folder}/handoff_{timestamp}.txt", "w") as log_file:
+                    log_file.write(handoff_summary)
+                print("Handoff summary saved.")
+                restart_chatgpt_instance() 
+            elif response_text.startswith("CURSORCMD:"):
+                command = response_text[10:]
+                x, y = map(int, command.split(','))  # Assuming coordinates are comma-separated
+                pyautogui.click(x, y)
+                print(f"Moved cursor and clicked at ({x}, {y})")
+            elif response_text.startswith("PIN"):
+                exemption_context = response_text[6:].strip()
+                chat_history.append({'role': 'assistant', 'content': f'Exemption: {exemption_context}'})
+                print(f"Exemption pinned: {exemption_context}")
+            elif response_text.startswith("CLEAR"):
+                clear_command = response_text[6:].strip()
+                if clear_command == "25":
+                    clear_chat_history(0.25)
+                elif clear_command == "50":
+                    clear_chat_history(0.5)
+                elif clear_command == "75":
+                    clear_chat_history(0.75)
+            elif response_text.startswith("terminate_instance"):
+                shutdown_chatgpt_instance_and_exit()
 
-    if disable_commands:
-        print("Command processing is currently disabled.")
-        return  # Return early
+            elif user_input.lower() == 'terminate_instance':
+                terminate_instance()
 
-    if response_text.startswith("CMD:"):
-        command = response_text[4:]
-        if len(command) == 1:
-            keyboard.press_and_release(command)
-            print(f"Executed command: {command}")
-        else:
-            pyautogui.write(command)
-            print(f"Typed string: {command}")
-    elif response_text.startswith("HANDOFF"):
-        handoff_summary = response_text[7:] 
-        buffer.append(handoff_summary)
-        timestamp = int(time.time())
-        with open(f"{logging_folder}/handoff_{timestamp}.txt", "w") as log_file:
-            log_file.write(handoff_summary)
-        print("Handoff summary saved.")
-        restart_chatgpt_instance() 
-    elif response_text.startswith("CURSORCMD:"):
-        command = response_text[10:]
-        x, y = map(int, command.split(','))  # Assuming coordinates are comma-separated
-        pyautogui.click(x, y)
-        print(f"Moved cursor and clicked at ({x}, {y})")
-    elif response_text.startswith("PIN"):
-        exemption_context = response_text[6:].strip()
-        chat_history.append({'role': 'assistant', 'content': f'Exemption: {exemption_context}'})
-        print(f"Exemption pinned: {exemption_context}")
-    elif response_text.startswith("CLEAR"):
-        clear_command = response_text[6:].strip()
-        if clear_command == "25":
-            clear_chat_history(0.25)
-        elif clear_command == "50":
-            clear_chat_history(0.5)
-        elif clear_command == "75":
-            clear_chat_history(0.75)
-    elif response_text.startswith("terminate_instance"):
-        shutdown_chatgpt_instance_and_exit()
-
-    elif user_input.lower() == 'terminate_instance':
-        terminate_instance()
-
-    elif response_text.lower() == 'recall':
-        recall_previous_summary(character_name)
+            elif response_text.lower() == 'recall':
+                recall_previous_summary(character_name)
     
-    elif response_text.startswith('INIT'):
-        # Remove any previous Pinned Init summary
-        chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Init summary')]
+            elif response_text.startswith('INIT'):
+                # Remove any previous Pinned Init summary
+                chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Init summary')]
 
-        # Add new Pinned Init summary
-        init_summary = response_text[5:]
-        chat_history.append({'role': 'user', 'content': f'Pinned Init summary: {init_summary}'})
-        print(f"Pinned Init summary: {init_summary}")
+                # Add new Pinned Init summary
+                init_summary = response_text[5:]
+                chat_history.append({'role': 'user', 'content': f'Pinned Init summary: {init_summary}'})
+                print(f"Pinned Init summary: {init_summary}")
 
-    elif response_text.startswith('HANDOFF'):
-        # Remove any previous Pinned Handoff context
-        chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Handoff context')]
+            elif response_text.startswith('HANDOFF'):
+                # Remove any previous Pinned Handoff context
+                chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Handoff context')]
 
-        # Add new Pinned Handoff context
-        handoff_context = response_text[7:]
-        chat_history.append({'role': 'user', 'content': f'Pinned Handoff context: {handoff_context}'})
-        print(f"Pinned Handoff context: {handoff_context}")
+                # Add new Pinned Handoff context
+                handoff_context = response_text[7:]
+                chat_history.append({'role': 'user', 'content': f'Pinned Handoff context: {handoff_context}'})
+                print(f"Pinned Handoff context: {handoff_context}")
 
-    elif response_text.startswith('PIN'):
-        exemption_context = response_text[4:]
-        chat_history.append({'role': 'user', 'content': f'Exemption: {exemption_context}'})
-        print(f"Exemption pinned: {exemption_context}")
+            elif response_text.startswith('PIN'):
+                exemption_context = response_text[4:]
+                chat_history.append({'role': 'user', 'content': f'Exemption: {exemption_context}'})
+                print(f"Exemption pinned: {exemption_context}")
 
-    elif response_text == 'CLEAR':
-        # Keep only the Pinned Init summary, Pinned Handoff context and Exemptions
-        chat_history = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context') or entry['content'].startswith('Exemption')]
-        print("Chat history cleared, only pinned summaries and exemptions remain.")
+            elif response_text == 'CLEAR':
+                # Keep only the Pinned Init summary, Pinned Handoff context and Exemptions
+                chat_history = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context') or entry['content'].startswith('Exemption')]
+                print("Chat history cleared, only pinned summaries and exemptions remain.")
 
-    elif response_text.startswith('CLEAR50'):
-        clear_chat_history(0.5)
+            elif response_text.startswith('CLEAR50'):
+                clear_chat_history(0.5)
 
-    elif response_text.startswith('CLEAR75'):
-        clear_chat_history(0.75)
+            elif response_text.startswith('CLEAR75'):
+                clear_chat_history(0.75)
 
-    elif response_text.startswith('CLEAR90'):
-        clear_chat_history(0.9)
+            elif response_text.startswith('CLEAR90'):
+                clear_chat_history(0.9)
 
-    elif response_text == 'CLEARALL':
-        # Keep only the Pinned Init summary and Pinned Handoff context
-        chat_history = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context')]
-        print("Chat history cleared, only pinned summaries remain.")
+            elif response_text == 'CLEARALL':
+                # Keep only the Pinned Init summary and Pinned Handoff context
+                chat_history = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context')]
+                print("Chat history cleared, only pinned summaries remain.")
 
-    elif response_text.startswith('SAVEPINNEDINIT'):
-        pinned_init_summaries = [entry['content'][19:] for entry in chat_history if entry['content'].startswith('Pinned Init summary')]
-        write_content_to_file("\n".join(pinned_init_summaries), "pinned_init_summaries.txt")
+            elif response_text.startswith('SAVEPINNEDINIT'):
+                pinned_init_summaries = [entry['content'][19:] for entry in chat_history if entry['content'].startswith('Pinned Init summary')]
+                write_content_to_file("\n".join(pinned_init_summaries), "pinned_init_summaries.txt")
 
-    elif response_text.startswith('SAVEPINNEDHANDOFF'):
-        pinned_handoff_contexts = [entry['content'][22:] for entry in chat_history if entry['content'].startswith('Pinned Handoff context')]
-        write_content_to_file("\n".join(pinned_handoff_contexts), "pinned_handoff_contexts.txt")
+            elif response_text.startswith('SAVEPINNEDHANDOFF'):
+                pinned_handoff_contexts = [entry['content'][22:] for entry in chat_history if entry['content'].startswith('Pinned Handoff context')]
+                write_content_to_file("\n".join(pinned_handoff_contexts), "pinned_handoff_contexts.txt")
 
-    elif response_text.startswith('SAVEEXEMPTIONS'):
-        exemptions = [entry['content'][10:] for entry in chat_history if entry['content'].startswith('Exemption')]
-        write_content_to_file("\n".join(exemptions), "exemptions.txt")
+            elif response_text.startswith('SAVEEXEMPTIONS'):
+                exemptions = [entry['content'][10:] for entry in chat_history if entry['content'].startswith('Exemption')]
+                write_content_to_file("\n".join(exemptions), "exemptions.txt")
 
-    elif response_text.startswith('SAVEPINNED'):
-        pinned_entries = [entry['content'] for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context')]
-        write_content_to_file("\n".join(pinned_entries), "pinned_entries.txt")
+            elif response_text.startswith('SAVEPINNED'):
+                pinned_entries = [entry['content'] for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context')]
+                write_content_to_file("\n".join(pinned_entries), "pinned_entries.txt")
 
-    elif response_text.startswith('SAVEALL'):
-        all_entries = [f"{entry['role']}: {entry['content']}" for entry in chat_history]
-        write_content_to_file("\n".join(all_entries), "all_entries.txt")
+            elif response_text.startswith('SAVEALL'):
+                all_entries = [f"{entry['role']}: {entry['content']}" for entry in chat_history]
+                write_content_to_file("\n".join(all_entries), "all_entries.txt")
 
-    else:
-    # Count tokens and display
-        token_count = count_tokens_in_history(chat_history)
-        print("ChatGPT response:", response_text)
-    # Update chat history with the current response
-    chat_history.append({"role": "assistant", "content": response_text})
+            else:
+            # Count tokens and display
+            token_count = count_tokens_in_history(chat_history)
+            print("ChatGPT response:", response_text)
+            # Update chat history with the current response
+            chat_history.append({"role": "assistant", "content": response_text})
     
-    # Count tokens and display
-    token_count = count_tokens_in_history(chat_history)
-    print(f"Current token count in chat history: {token_count}")
+            # Count tokens and display
+            token_count = count_tokens_in_history(chat_history)
+            print(f"Current token count in chat history: {token_count}")
 
 
 def initiate_and_handoff():
