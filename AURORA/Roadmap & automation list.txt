@@ -12,6 +12,8 @@ Automation list
 When vision comes out, Ill begin testing my assistant to see if code works as expected. Then ill add support (like touch and the system) for other OSs a little bit with some checks. Then get TTS & STT into AURORA ...   
 Finally I'll build "The WINDOW", while in beta reference is "The Window",
  final name for The Window will be The PORTAL. 
+Programmable Output Rendering Transactive Artificial Layer
+
 
 Programmable
 Output
