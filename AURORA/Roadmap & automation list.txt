@@ -1,4 +1,10 @@
-Automation list
+AURORA  AI-driven User-friendly Responsive Online Recreational Agent ||
+        Autonomous Universal Recreation and Online Responsive AI.
+ -Versatile capabilities + input
+   
+~Chat history manipulation, short term persistence, long term persistence (vector db soon), chronoception via timestamped screenshots, grounded context from visual processing, Summons & Silencing secondary ai, programmatic outputs via a virtual mouse click events & keyboard, ipc direct mem & shared mem with PORTAL (soon). 
+
+  -Automation list
 
 ~McD simulation (and hence if given an example may be able to operate a screen/buttons), Spam message detect, Captcha solver, Camera Guard, Play Pokemon Blue 
 ~ai Drone with paintball gun using blood red paintballs lulz (ai drone sports? Ai drone laser tag/paintball :3 )
@@ -12,8 +18,9 @@ Automation list
 When vision comes out, Ill begin testing my assistant to see if code works as expected. Then ill add support (like touch and the system) for other OSs a little bit with some checks. Then get TTS & STT into AURORA ...   
 Finally I'll build "The WINDOW", while in beta reference is "The Window",
  final name for The Window will be The PORTAL. 
-Programmable Output Rendering Transactive Artificial Layer
 
+Programmable Output Rendering Transactive Artificial Layer
+Versatile capabilities + output
 
 Programmable
 Output
