@@ -1,7 +1,7 @@
 # AI conversation powered by OpenAI's GPT-4 via ChatGPT API
 # Additional AI dev assistance provided by Anthropic's Claude model
 
-import openai # OpenAI API client library
+import openai
 import pyautogui, keyboard, threading  
 import time
 from PIL import ImageGrab
@@ -10,10 +10,52 @@ import sys
 import datetime
 import requests
 from io import BytesIO
-from PIL import Image # Python standard libraries
-import schedule # scheduler library by author_name
+from PIL import Image
+import schedule
 from tiktoken import Tokenizer
+import multiprocessing
 
+chat_history_lock = multiprocessing.Lock()
+
+
+# Global variables
+primary_ai_name = "AURORA" 
+secondary_ais = {} # Dict to track secondary AI instances
+
+def start_secondary_ai(name, role, init_prompt):
+  def secondary_ai_process(name, role, init_prompt):
+    openai.api_key = API_KEY
+    
+    init_prompt += f"\n\nMy name is {name}. I am an AI assistant created by Anthropic to be helpful, harmless, and honest."
+
+    while True:
+      response = openai.Completion.create(engine="text-davinci-003", prompt=init_prompt, max_tokens=100)  
+      print(f"{name}: {response.choices[0].text}")
+
+  p = multiprocessing.Process(target=secondary_ai_process, args=(name, role, init_prompt))
+  p.start()
+
+  secondary_ais[name] = p
+
+def summon(name, role, init_prompt):
+  if name not in secondary_ais:
+    print(f"{primary_ai_name}: Summoning {name}...")
+    start_secondary_ai(name, role, init_prompt)
+  else:
+    print(f"{name} is already active.")
+
+def silence(name):
+  if name in secondary_ais:
+    print(f"{primary_ai_name}: Silencing {name}...")
+    secondary_ais[name].terminate()
+    del secondary_ais[name]
+  else:
+    print(f"{name} is not an active secondary AI.")
+
+# Sample usage  
+#summon("Athena", "advisor", "You are an AI assistant named Athena.") 
+
+#silence("Athena")
 
 tokenizer = Tokenizer()
 
@@ -38,44 +80,48 @@ def threshold_check(current_token_count, total_tokens, threshold_percentage):
 def send_prompt_to_chatgpt(prompt, image_path=None):
     messages = [{"role": "system", "content": "You are a helpful assistant."}, {"role": "user", "content": prompt}]
     
-    # append user message to chat history
-    chat_history.append({"role": "user", "content": prompt})
+    global chat_history_lock
 
-    if image_path is not None:
-        with open(image_path, "rb") as image_file:
-            image_data = image_file.read()
-        messages.append({"role": "user", "content": {"image": image_data}})
+    with chat_history_lock:
+        # append user message to chat history
+        chat_history.append({"role": "user", "content": prompt})
+
+        if image_path is not None:
+            with open(image_path, "rb") as image_file:
+                image_data = image_file.read()
+            messages.append({"role": "user", "content": {"image": image_data}})
     
-    response = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=messages,
-        max_tokens=100000,
-        n=1,
-        temperature=0.5,
-    )
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=messages,
+            max_tokens=100000,
+            n=1,
+            temperature=0.5,
+        )
 
-    # append ChatGPT's response to chat history
-    chat_history.append({"role": "system", "content": response.choices[0].message['content'].strip()})
+        # append ChatGPT's response to chat history
+        chat_history.append({"role": "system", "content": response.choices[0].message['content'].strip()})
     
-    # Count tokens and display
-    token_count = count_tokens_in_history(chat_history)
-    
+        # Count tokens and display
+        token_count_message = count_tokens_in_history(chat_history)
+        current_token_count = int(token_count_message.split()[0])
+        
+        # Print the user's text if show_user_text is True
+        if show_user_text:
+            print("User text:", prompt)
 
-    # Print the user's text if show_user_text is True
-    if show_user_text:
-        print("User text:", prompt)
+        # Count tokens and check threshold
+        if threshold_check(current_token_count, CONTEXT_LENGTH, 75):
+            chat_history.append({"role": "system", "content": f"Current token count: {current_token_count} out of {CONTEXT_LENGTH} available"})
+        
+        print(f"Current token count in chat history: {token_count_message}")
+        return response.choices[0].message['content'].strip()
 
-    # Count tokens and check threshold
-
-    if threshold_check(current_token_count, CONTEXT_LENGTH, 75):  # Assuming CONTEXT_LENGTH is your total token capacity
-        chat_history.append({"role": "system", "content": f"Current token count: {current_count} out of {CONTEXT_LENGTH} available"})
-    print(f"Current token count in chat history: {token_count}")
-    return response.choices[0].message['content'].strip()
 
 def write_content_to_file(content, file_name):
-    with open(file_name, "w") as f:
-        f.write(content)
-    print(f"Content saved to {file_name}")
+        with open(file_name, "w") as f:
+            f.write(content)
+        print(f"Content saved to {file_name}")
 
 
 # Define process_chatgpt_response function before calling it
