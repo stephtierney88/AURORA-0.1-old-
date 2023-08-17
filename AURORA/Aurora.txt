@@ -218,20 +218,7 @@ def initiate_and_handoff():
         response_text = send_prompt_to_chatgpt(handoff_prompt)
 
 
-# Read the init prompt from a file
-init_file = f"{character_name}_init.txt"
-with open(init_file, "r") as f:
-    init_prompt = f.read().strip()
 
-
-
-# Read the handoff summary from a file
-handoff_file = f"{character_name}_handoff.txt"
-if os.path.exists(handoff_file):
-    with open(handoff_file, "r") as f:
-        handoff_text = f.read().strip()
-    response_text = send_prompt_to_chatgpt(handoff_text)
-    process_chatgpt_response(response_text)
 
 # Define clear_chat_history function with percentage
 def clear_chat_history(percentage):
@@ -495,6 +482,20 @@ def run_scheduled_tasks():
         schedule.run_pending()
         time.sleep(1)
 
+# Read the init prompt from a file
+init_file = f"{character_name}_init.txt"
+with open(init_file, "r") as f:
+    init_prompt = f.read().strip()
+
+
+
+# Read the handoff summary from a file
+handoff_file = f"{character_name}_handoff.txt"
+if os.path.exists(handoff_file):
+    with open(handoff_file, "r") as f:
+        handoff_text = f.read().strip()
+    response_text = send_prompt_to_chatgpt(handoff_text)
+    process_chatgpt_response(response_text)
 
 # Global variable to control the main loop
 running = True
