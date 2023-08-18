@@ -3,6 +3,7 @@ AURORA  AI-driven User-friendly Responsive Online Recreational Agent ||
  -Versatile capabilities + input
    
 ~Chat history manipulation, short term persistence, long term persistence (vector db soon), chronoception via timestamped screenshots, grounded context from visual processing, Summons & Silencing secondary ai, programmatic outputs via a virtual mouse click events & keyboard, ipc direct mem & shared mem with PORTAL (soon). 
+written in python
 
   -Automation list
 
@@ -28,6 +29,8 @@ Rendering
 Transactive
 Artificial
 Layer
+
+written in c++
 
     Version 1 - Basic Programmable Window: This first version is a blank canvas that the AI can manipulate dynamically. 
 It's important at this stage to build robust error handling to ensure that dynamic programming changes don't crash the system.  
