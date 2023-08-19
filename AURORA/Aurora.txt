@@ -20,11 +20,70 @@ chat_history_lock = multiprocessing.Lock()
 
 # Global variables
 primary_ai_name = "AURORA" 
-secondary_ais = {} # Dict to track secondary AI instances
+# Dict to track secondary AI instances
+# Each instance is stored with its name as the key and its attributes as values in a nested dictionary
+tokenizer = Tokenizer()
+token_limit = 5000  # Set this to whatever limit you want
+token_counter = 0  # This will keep track of the tokens used so fa
+character_name = "Aurora"
 
-def start_secondary_ai(name, role, init_prompt):
-  def secondary_ai_process(name, role, init_prompt):
-    openai.api_key = API_KEY  #Change this later!
+chat_history = []
+# Default access level for global chat history (0: read-only, 1: read-write)
+global_chat_history_access_default = 0 
+CONTEXT_LENGTH = 8192  # or whatever the max token count for GPT-4 is
+disable_commands = False  # Global boolean variable to track whether command processing is currently disabled
+show_user_text = True
+secondary_ais = {}
+
+def modai(name, id=None, chat_history_access=None, private_chat_history=False, private_chat_history_access=1, urgency=None, rank=None, approved_commands=None, denied_commands=None):
+    """
+    Modify the attributes of an existing secondary AI instance.
+    
+    :param name: The name of the AI instance to modify
+    :param id: New ID for the AI instance
+    :param chat_history_access: Access level for global chat history (0: read-only, 1: read-write)
+    :param private_chat_history: Boolean indicating whether this AI should have a private chat history
+    :param private_chat_history_access: Access level for private chat history (0: read-only, 1: read-write)
+    :param urgency: Urgency level (lower is higher priority)
+    :param rank: Rank level (lower is higher rank, 0 is highest)
+    :param approved_commands: List of commands this AI instance is allowed to run
+    :param denied_commands: List of commands this AI instance is not allowed to run
+    """
+    if name in secondary_ais:
+        if id is not None:
+            secondary_ais[name]['id'] = id
+        if chat_history_access is not None:
+            secondary_ais[name]['chat_history_access'] = chat_history_access
+        if urgency is not None:
+            secondary_ais[name]['urgency'] = urgency
+        if rank is not None:
+            secondary_ais[name]['rank'] = rank
+        if approved_commands is not None:
+            secondary_ais[name]['approved_commands'] = approved_commands
+        if denied_commands is not None:
+            secondary_ais[name]['denied_commands'] = denied_commands
+        secondary_ais[name]['private_chat_history'] = private_chat_history
+        secondary_ais[name]['private_chat_history_access'] = private_chat_history_access
+        print(f"{name}'s attributes have been updated.")
+    else:
+        print(f"{name} is not an active secondary AI.")
+
+def start_secondary_ai(name):
+    """
+    Start the process for a secondary AI instance based on its attributes in the secondary_ais dictionary.
+    
+    :param name: The name of the AI instance to start
+    """
+    def secondary_ai_process():
+        # ... existing code for the secondary AI process ...
+        pass  # Placeholder
+    
+    # Create and start the process
+    p = multiprocessing.Process(target=secondary_ai_process)
+    p.start()
+    
+    # Store the process object in the secondary_ais dictionary for this AI instance
+    secondary_ais[name]['process'] = p
     
     init_prompt += f"\n\nMy name is {name}. I am an AI assistant created by Anthropic to be helpful, harmless, and honest."
 
@@ -32,28 +91,41 @@ def start_secondary_ai(name, role, init_prompt):
       response = openai.Completion.create(engine="text-davinci-003", prompt=init_prompt, max_tokens=100)  
       print(f"{name}: {response.choices[0].text}")
 
-  p = multiprocessing.Process(target=secondary_ai_process, args=(name, role, init_prompt))
-  p.start()
 
   secondary_ais[name] = p
 
 
-tokenizer = Tokenizer()
-token_limit = 5000  # Set this to whatever limit you want
-token_counter = 0  # This will keep track of the tokens used so fa
-character_name = "Aurora"
 
-chat_history = []
-CONTEXT_LENGTH = 8192  # or whatever the max token count for GPT-4 is
-disable_commands = False  # Global boolean variable to track whether command processing is currently disabled
-show_user_text = True
 
-def summon(name, role, init_prompt):
-  if name not in secondary_ais:
-    print(f"{primary_ai_name}: Summoning {name}...")
-    start_secondary_ai(name, role, init_prompt)
-  else:
-    print(f"{name} is already active.")
+def summon(name, id, chat_history_access=global_chat_history_access_default, private_chat_history=False, private_chat_history_access=1, urgency, rank, approved_commands=[], denied_commands=[]):
+    """
+    Summon a new secondary AI instance.
+    
+    :param name: The name of the new AI instance
+    :param id: ID for the AI instance
+    :param chat_history_access: 0 for read-only access, 1 for read-write access
+    :param urgency: Urgency level (lower is higher priority)
+    :param rank: Rank level (lower is higher rank, 0 is highest)
+    :param approved_commands: List of commands this AI instance is allowed to run
+    :param denied_commands: List of commands this AI instance is not allowed to run
+    """
+    if name not in secondary_ais:
+        print(f"{primary_ai_name}: Summoning {name}...")
+        secondary_ais[name] = {
+            'id': id,
+            'chat_history_access': chat_history_access,
+            'private_chat_history': private_chat_history,
+            'private_chat_history_access': private_chat_history_access,
+            'private_chat_content': [],  # This will hold the private chat history for this AI instance
+            'urgency': urgency,
+            'rank': rank,
+            'approved_commands': approved_commands,
+            'denied_commands': denied_commands,
+            'process': None  # Placeholder for the AI process
+        }
+        start_secondary_ai(name)
+    else:
+        print(f"{name} is already active.")
 
 def silence(name):
   if name in secondary_ais:
