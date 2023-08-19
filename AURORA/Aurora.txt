@@ -37,6 +37,16 @@ def start_secondary_ai(name, role, init_prompt):
 
   secondary_ais[name] = p
 
+
+tokenizer = Tokenizer()
+
+character_name = "Aurora"
+
+chat_history = []
+CONTEXT_LENGTH = 8192  # or whatever the max token count for GPT-4 is
+disable_commands = False  # Global boolean variable to track whether command processing is currently disabled
+show_user_text = True
+
 def summon(name, role, init_prompt):
   if name not in secondary_ais:
     print(f"{primary_ai_name}: Summoning {name}...")
@@ -57,14 +67,6 @@ def silence(name):
 
 #silence("Athena")
 
-tokenizer = Tokenizer()
-
-character_name = "Aurora"
-
-chat_history = []
-CONTEXT_LENGTH = 8192  # or whatever the max token count for GPT-4 is
-disable_commands = False  # Global boolean variable to track whether command processing is currently disabled
-show_user_text = True
 
 def count_tokens_in_history(chat_history):
     text = " ".join([entry['content'] for entry in chat_history])
