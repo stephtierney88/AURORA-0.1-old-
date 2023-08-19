@@ -271,23 +271,26 @@ def initiate_and_handoff():
 # Define clear_chat_history function with percentage
 def clear_chat_history(percentage):
     global chat_history
-    # Number of chats to keep
-    num_chats_to_keep = int(len(chat_history) * (1-percentage))
 
-    pinned_entries = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context')]
-    exempted_entries = [entry for entry in chat_history if entry['content'].startswith('Exemption')]
+    with chat_history_lock:
+        # Number of chats to keep
+        num_chats_to_keep = int(len(chat_history) * (1-percentage))
 
-    # Concatenate the lists and sort them by their index in the original chat_history
-    exempted_and_pinned_entries = sorted(pinned_entries + exempted_entries, key=chat_history.index)
+        pinned_entries = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context')]
+        exempted_entries = [entry for entry in chat_history if entry['content'].startswith('Exemption')]
 
-    # If the number of chats to keep is less than the length of the exempted_and_pinned_entries list
-    # Keep only the most recent exempted and pinned entries
-    if num_chats_to_keep < len(exempted_and_pinned_entries):
-        chat_history = exempted_and_pinned_entries[-num_chats_to_keep:]
-    else:
-        non_exempted_entries = [entry for entry in chat_history if entry not in exempted_and_pinned_entries]
-        chat_history = non_exempted_entries[-(num_chats_to_keep-len(exempted_and_pinned_entries)):] + exempted_and_pinned_entries
-    print(f"Chat history cleared, {int(percentage*100)}% chats are removed, only most recent {num_chats_to_keep} entries, pinned summaries, and exemptions remain.")
+        # Concatenate the lists and sort them by their index in the original chat_history
+        exempted_and_pinned_entries = sorted(pinned_entries + exempted_entries, key=chat_history.index)
+
+        # If the number of chats to keep is less than the length of the exempted_and_pinned_entries list
+        # Keep only the most recent exempted and pinned entries
+        if num_chats_to_keep < len(exempted_and_pinned_entries):
+            chat_history = exempted_and_pinned_entries[-num_chats_to_keep:]
+        else:
+            non_exempted_entries = [entry for entry in chat_history if entry not in exempted_and_pinned_entries]
+            chat_history = non_exempted_entries[-(num_chats_to_keep-len(exempted_and_pinned_entries)):] + exempted_and_pinned_entries
+            
+        print(f"Chat history cleared, {int(percentage*100)}% chats are removed, only most recent {num_chats_to_keep} entries, pinned summaries, and exemptions remain.")
 
 # Function to handle user commands
 def handle_commands(user_input):
