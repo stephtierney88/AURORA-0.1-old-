@@ -39,7 +39,8 @@ def start_secondary_ai(name, role, init_prompt):
 
 
 tokenizer = Tokenizer()
-
+token_limit = 5000  # Set this to whatever limit you want
+token_counter = 0  # This will keep track of the tokens used so fa
 character_name = "Aurora"
 
 chat_history = []
@@ -73,9 +74,59 @@ def count_tokens_in_history(chat_history):
     tokens_used = len(list(tokenizer.tokenize(text)))
     return f"{tokens_used} out of {CONTEXT_LENGTH} available"
 
+
+def save_chat_history_to_file():
+    """
+    Save the current chat history to a file.
+    The filename will be formatted as 'chat_history_PrimaryAIName_date_time.txt',
+    where 'PrimaryAIName' is replaced with the name of the primary AI,
+    'date' is replaced with the current date, and 'time' is replaced with the current time.
+    """
+    # Get the current date and time
+    now = datetime.datetime.now()
+    
+    # Format the date and time as strings
+    date_str = now.strftime('%Y-%m-%d')
+    time_str = now.strftime('%H-%M-%S')
+    
+    # Create the filename
+    filename = f"chat_history_{primary_ai_name}_{date_str}_{time_str}.txt"
+    
+    # Acquire the lock to ensure no other process is modifying the chat history while we are saving it
+    with chat_history_lock:
+        # Write the chat history to the file
+        with open(filename, 'w') as file:
+            for entry in chat_history:
+                role = entry['role']
+                content = entry['content']
+                file.write(f"{role}: {content}\n")
+                
+    print(f"Chat history saved to {filename}")
+
+def check_and_save_chat_history():
+    """
+    Check the token count in the chat history, and if it reaches the defined limit,
+    save the chat history to a file.
+    """
+    global chat_history_lock
+    
+    with chat_history_lock:
+    """
+    Check the tokens used so far. 
+    If it exceeds the limit, save the chat history to a file and reset the token counter.
+    """
+            global token_counter
+
+            # Check if the token counter exceeds the limit
+            if token_counter > token_limit:
+                print("Token limit reached. Saving chat history to file...")
+                save_chat_history_to_file()  # Save the chat history to a text file
+                token_counter = 0  # Reset the token counter
+
 def threshold_check(current_token_count, total_tokens, threshold_percentage):
     threshold = total_tokens * threshold_percentage / 100
     return current_token_count > threshold
+
 
 
 # Function to send prompt to ChatGPT
@@ -131,6 +182,7 @@ def process_chatgpt_response(response_text):
     global chat_history
     global disable_commands
     global chat_history_lock
+    global token_counter
 
     with chat_history_lock:
             if response_text.startswith('/*'):
@@ -255,6 +307,9 @@ def process_chatgpt_response(response_text):
     
             # Count tokens and display
             token_count = count_tokens_in_history(chat_history)
+            tokens_in_message = len(list(tokenizer.tokenize(message)))
+            token_counter += tokens_in_message  # Add the token count of the current message to the running total
+            save_chat_history_to_file() 
             print(f"Current token count in chat history: {token_count}")
 
 
