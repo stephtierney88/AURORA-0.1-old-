@@ -264,14 +264,16 @@ def process_chatgpt_response(response_text):
                 chat_history = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context') or entry['content'].startswith('Exemption')]
                 print("Chat history cleared, only pinned summaries and exemptions remain.")
 
-            elif response_text.startswith('CLEAR50'):
-                clear_chat_history(0.5)
-
-            elif response_text.startswith('CLEAR75'):
-                clear_chat_history(0.75)
-
-            elif response_text.startswith('CLEAR90'):
-                clear_chat_history(0.9)
+        elif response_text.startswith("CLEAR%"):
+            # Extract the percentage value from the command
+            try:
+                percentage_to_clear = float(response_text[6:]strip()) / 100
+                if 0 <= percentage_to_clear <= 1:
+                    clear_chat_history(percentage_to_clear)
+                else:
+                    print("Invalid percentage. Please enter a number between 0 and 100.")
+            except ValueError:
+                print("Invalid command format. Expected format is 'CLEAR%{number}'.")
 
             elif response_text == 'CLEARALL':
                 # Keep only the Pinned Init summary and Pinned Handoff context
@@ -387,14 +389,17 @@ def handle_commands(user_input):
         chat_history = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context') or entry['content'].startswith('Exemption')]
         print("Chat history cleared, only pinned summaries and exemptions remain.")
 
-    elif user_input.startswith('CLEAR50'):
-        clear_chat_history(0.5)
+        elif user_input.startswith("CLEAR%"):
+            # Extract the percentage value from the command
+            try:
+                percentage_to_clear = float(user_input[6:]strip()) / 100
+                if 0 <= percentage_to_clear <= 1:
+                    clear_chat_history(percentage_to_clear)
+                else:
+                    print("Invalid percentage. Please enter a number between 0 and 100.")
+            except ValueError:
+                print("Invalid command format. Expected format is 'CLEAR%{number}'.")
 
-    elif user_input.startswith('CLEAR75'):
-        clear_chat_history(0.75)
-
-    elif user_input.startswith('CLEAR90'):
-        clear_chat_history(0.9)
 
     elif user_input == 'CLEARALL':
         # Keep only the Pinned Init summary and Pinned Handoff context
