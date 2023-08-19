@@ -69,9 +69,10 @@ def silence(name):
 
 
 def count_tokens_in_history(chat_history):
-    text = " ".join([entry['content'] for entry in chat_history])
-    tokens_used = len(list(tokenizer.tokenize(text)))
-    return f"{tokens_used} out of {CONTEXT_LENGTH} available"
+    with chat_history_lock:
+        text = " ".join([entry['content'] for entry in chat_history])
+        tokens_used = len(list(tokenizer.tokenize(text)))
+        return f"{tokens_used} out of {CONTEXT_LENGTH} available"
 
 def threshold_check(current_token_count, total_tokens, threshold_percentage):
     threshold = total_tokens * threshold_percentage / 100
