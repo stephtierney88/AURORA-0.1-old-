@@ -35,6 +35,52 @@ disable_commands = False  # Global boolean variable to track whether command pro
 show_user_text = True
 secondary_ais = {}
 
+class EntryUpdate:
+    def __init__(self, content=None, timestamp=None, keywords=None):
+        self.content = content
+        self.timestamp = timestamp
+        self.keywords = keywords
+
+def bulk_update_chat_entries(updates):
+    """
+    Update multiple chat entries at once.
+    :param updates: A dictionary where keys are indices of chat entries and values are EntryUpdate objects.
+    """
+    global chat_history_lock
+    with chat_history_lock:
+        for index, update in updates.items():
+            if update.content:
+                chat_history[index]['content'] = update.content
+            if update.timestamp:
+                chat_history[index]['timestamp'] = update.timestamp
+            if update.keywords:
+                chat_history[index]['keywords'].extend(update.keywords)
+                # Remove duplicates if any
+                chat_history[index]['keywords'] = list(set(chat_history[index]['keywords']))
+
+def parse_bulk_update_command(command):
+    """Parse the AI command for bulk updates and return a dictionary of updates."""
+    _, indices_str, updates_str = command.split(":")
+    indices = list(map(int, indices_str.split(",")))
+    updates = {}
+    for index in indices:
+        entry_update = EntryUpdate()
+        for update_str in updates_str.split("|"):
+            key, value = update_str.split("=")
+            if key == "content":
+                entry_update.content = value
+            elif key == "timestamp":
+                entry_update.timestamp = value
+            elif key == "keywords":
+                entry_update.keywords = value.split(",")
+        updates[index] = entry_update
+    return updates
+
+def process_bulk_update_command(command):
+    updates = parse_bulk_update_command(command)
+    bulk_update_chat_entries(updates)
+
+
 def modai(name, id=None, chat_history_access=None, private_chat_history=False, private_chat_history_access=1, urgency=None, rank=None, approved_commands=None, denied_commands=None):
     """
     Modify the attributes of an existing secondary AI instance.
@@ -145,6 +191,19 @@ def count_tokens_in_history(chat_history):
     text = " ".join([entry['content'] for entry in chat_history])
     tokens_used = len(list(tokenizer.tokenize(text)))
     return f"{tokens_used} out of {CONTEXT_LENGTH} available"
+
+def save_aurora_private_chat_history_to_file():
+    now = datetime.datetime.now()
+    date_str = now.strftime('%Y-%m-%d')
+    time_str = now.strftime('%H-%M-%S')
+    filename = f"aurora_private_chat_history_{date_str}_{time_str}.txt"
+    with chat_history_lock:
+        with open(filename, 'w') as file:
+            for entry in aurora_private_chat_history:
+                role = entry['role']
+                content = entry['content']
+                file.write(f"{role}: {content}\n")
+    print(f"AURORA's private chat history saved to {filename}")
 
 
 def save_chat_history_to_file():
@@ -291,14 +350,7 @@ def process_chatgpt_response(response_text):
                 exemption_context = response_text[6:].strip()
                 chat_history.append({'role': 'assistant', 'content': f'Exemption: {exemption_context}'})
                 print(f"Exemption pinned: {exemption_context}")
-            elif response_text.startswith("CLEAR"):
-                clear_command = response_text[6:].strip()
-                if clear_command == "25":
-                    clear_chat_history(0.25)
-                elif clear_command == "50":
-                    clear_chat_history(0.5)
-                elif clear_command == "75":
-                    clear_chat_history(0.75)
+
             elif response_text.startswith("terminate_instance"):
                 shutdown_chatgpt_instance_and_exit()
 
