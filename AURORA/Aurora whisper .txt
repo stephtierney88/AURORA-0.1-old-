@@ -63,7 +63,9 @@ def audio_callback(indata, frames, time, status):
 
 
 chat_history = []
+CONTEXT_LENGTH = 8192  # or whatever the max token count for GPT-4 is
 disable_commands = False  # Global boolean variable to track whether command processing is currently disabled
+show_user_text = True
 
 # Function to send prompt to ChatGPT
 def send_prompt_to_chatgpt(prompt, image_path=None):
