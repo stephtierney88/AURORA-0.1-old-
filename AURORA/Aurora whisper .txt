@@ -199,8 +199,10 @@ def handle_commands(command_input, is_user=True):
     global chat_history
     global disable_commands
     global show_user_text
-    # ... (all the other global variables needed for this function)
-
+    global show_ai_text
+    global hide_ai_commands
+    global hide_user_commands
+    
     command_input = f"{command_input}~|~|~{datetime.datetime.now()}"
 
     if command_input.startswith('/*'):
@@ -216,9 +218,9 @@ def handle_commands(command_input, is_user=True):
     # For each possible command, check if it's present in command_input
     # Then execute its corresponding action
 
-        if response_text.startswith("VKB_CMD:"):
+    if command_input.startswith("VKB_CMD:"):
         # Strip off the "VKB_CMD:" prefix and split using the delimiter
-        command_section, timestamp = response_text[len("VKB_CMD:"):].split("~|~|~")
+        command_section, timestamp = command_input[len("VKB_CMD:"):].split("~|~|~")
         commands = command_section.strip().split(';')  # Split multiple commands
         for command in commands:
             command = command.strip()
@@ -229,8 +231,8 @@ def handle_commands(command_input, is_user=True):
                 pyautogui.write(command)
                 print(f"Typed string: {command} at {timestamp}")
 
-    elif response_text.startswith("CURSORCMD:"):
-        command_section = response_text[10:].strip()
+    elif command_input.startswith("CURSORCMD:"):
+        command_section = command_input[10:].strip()
         commands = command_section.split(';')  # Split multiple commands
         for command in commands:
             cmd, x, y = command.strip().split(',')
@@ -241,201 +243,108 @@ def handle_commands(command_input, is_user=True):
             elif cmd == "right_click":
                 pyautogui.rightClick(int(x), int(y))
             print(f"Executed cursor command: {cmd} at ({x}, {y})")
-        elif response_text.startswith("HANDOFF"):
-                handoff_summary = response_text[7:].strip() 
-                buffer.append(handoff_summary)
-                timestamp = int(time.time())
-                with open(f"{logging_folder}/handoff_{timestamp}.txt", "w") as log_file:
-                    log_file.write(handoff_summary)
-                chat_history.append({'role': 'assistant', 'content': f'Pinned Handoff context: {handoff_summary}'})
-                all_entries = [f"{entry['role']}: {entry['content']}" for entry in chat_history]
-                write_content_to_file("\n".join(all_entries), "all_entries.txt")
-                print("Handoff summary saved.")
-                restart_chatgpt_instance() 
 
-        elif response_text.startswith("PIN"):
-                exemption_context = response_text[4:].strip()
-                chat_history.append({'role': 'assistant', 'content': f'Exemption: {exemption_context}'})
-                print(f"Exemption pinned: {exemption_context}")
+    elif command_input.startswith("HANDOFF"):
+        handoff_summary = command_input[7:].strip() 
+        buffer.append(handoff_summary)
+        timestamp = int(time.time())
+        with open(f"{logging_folder}/handoff_{timestamp}.txt", "w") as log_file:
+            log_file.write(handoff_summary)
+        chat_history.append({'role': 'assistant', 'content': f'Pinned Handoff context: {handoff_summary}'})
+        all_entries = [f"{entry['role']}: {entry['content']}" for entry in chat_history]
+        write_content_to_file("\n".join(all_entries), "all_entries.txt")
+        print("Handoff summary saved.")
+        restart_chatgpt_instance()
 
-        elif response_text.startswith("SHUTDOWN_EXIT_INSTANCE"):
-                shutdown_chatgpt_instance_and_exit()
+    elif command_input.startswith("PIN"):
+        exemption_context = command_input[4:].strip()
+        chat_history.append({'role': 'assistant', 'content': f'Exemption: {exemption_context}'})
+        print(f"Exemption pinned: {exemption_context}")
 
-        elif user_input.startswith('TERMINATE_INSTANCE'):
-                terminate_instance()
+    elif command_input.startswith("SHUTDOWN_EXIT_INSTANCE"):
+        shutdown_chatgpt_instance_and_exit()
 
-        elif response_text.startswith("RECALL"):
-                recall_previous_summary(character_name)
-    
-        elif response_text.startswith('INIT'):
-                # Remove any previous Pinned Init summary
-                chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Init summary')]
-
-                # Add new Pinned Init summary
-                init_summary = response_text[5:]
-                chat_history.append({'role': 'user', 'content': f'Pinned Init summary: {init_summary}'})
-                print(f"Pinned Init summary: {init_summary}")
-
-        elif response_text.startswith('RETRIEVE_HANDOFF'):
-                # This assumes that the handoff filename will be provided in the format: 'Retrieve_HANDOFF_filename.txt'
-                handoff_filename = response_text.split('_')[2].strip()
-                if not handoff_filename:
-                    print("No handoff file specified.")
-                    return
-    
-    handoff_filepath = f"{logging_folder}/{handoff_filename}"
-    if not os.path.exists(handoff_filepath):
-        print(f"No such file exists: {handoff_filepath}")
-        return
-    
-    with open(handoff_filepath, "r") as file:
-        handoff_summary = file.read().strip()
-    
-    # Check if this handoff summary is already in the chat history
-    if any(entry['content'].startswith(f'Pinned Handoff context: {handoff_summary}') for entry in chat_history):
-        print("Handoff summary already in chat history.")
-        return
-    
-    # If not, add the summary to the chat history
-    chat_history.append({'role': 'assistant', 'content': f'Pinned Handoff context: {handoff_summary}'})
-    print(f"Pinned Handoff context from file: {handoff_summary}")
-
-
-        elif response_textstartswith("CLEAR_NON_PINNED"):
-                # Keep only the Pinned Init summary, Pinned Handoff context and Exemptions
-                chat_history = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context') or entry['content'].startswith('Exemption')]
-                print("Chat history cleared, only pinned summaries and exemptions remain.")
-
-        elif response_text.startswith("CLEAR%"):
-            # Extract the percentage value from the command
-            try:
-                percentage_to_clear = float(response_text[6:]strip()) / 100
-                if 0 <= percentage_to_clear <= 1:
-                    clear_chat_history(percentage_to_clear)
-                else:
-                    print("Invalid percentage. Please enter a number between 0 and 100.")
-            except ValueError:
-                print("Invalid command format. Expected format is 'CLEAR%{number}'.")
-
-        elif response_text.startswith("CLEARALL"):
-                # Keep only the Pinned Init summary and Pinned Handoff context
-                chat_history = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context')]
-                print("Chat history cleared, only pinned summaries remain.")
-
-        elif response_text.startswith('SAVEPINNEDINIT'):
-                pinned_init_summaries = [entry['content'][19:] for entry in chat_history if entry['content'].startswith('Pinned Init summary')]
-                write_content_to_file("\n".join(pinned_init_summaries), "pinned_init_summaries.txt")
-
-        elif response_text.startswith('SAVEPINNEDHANDOFF'):
-                pinned_handoff_contexts = [entry['content'][22:] for entry in chat_history if entry['content'].startswith('Pinned Handoff context')]
-                write_content_to_file("\n".join(pinned_handoff_contexts), "pinned_handoff_contexts.txt")
-
-        elif response_text.startswith('SAVEEXEMPTIONS'):
-                exemptions = [entry['content'][10:] for entry in chat_history if entry['content'].startswith('Exemption')]
-                write_content_to_file("\n".join(exemptions), "exemptions.txt")
-
-        elif response_text.startswith('SAVEPINNED'):
-                pinned_entries = [entry['content'] for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context')]
-                write_content_to_file("\n".join(pinned_entries), "pinned_entries.txt")
-
-        elif response_text.startswith('SAVEALL'):
-                all_entries = [f"{entry['role']}: {entry['content']}" for entry in chat_history]
-                write_content_to_file("\n".join(all_entries), "all_entries.txt")
-
-    else:
-        # If none of the commands match
-        # Use the new display function for the AI's text
-        role = "assistant" if not is_user else "user"
-        if not (is_user and hide_user_commands) or (not is_user and hide_ai_commands):
-            display_message(role, command_input)
-            chat_history.append({"role": role, "content": command_input})
-
-        token_count = count_tokens_in_history(chat_history)
-        tokens_in_message = len(list(tokenizer.tokenize(command_input)))
-        token_counter += tokens_in_message
-        save_chat_history_to_file()
-        print(f"Current token count in chat history: {token_count}")
-
-
-
-# Function to handle user commands OLD
-def handle_commands(user_input):
-    global chat_history
-    global disable_commands
-    global show_user_text
-
-    if user_input.startswith('TERMINATE_INSTANCE'):
+    elif command_input.startswith('TERMINATE_INSTANCE'):
         terminate_instance()
 
-    elif user_input.startswith('RECALL'):
+    elif command_input.startswith("RECALL"):
         recall_previous_summary(character_name)
     
-    elif user_input.startswith('INIT'):
+    elif command_input.startswith('INIT'):
         # Remove any previous Pinned Init summary
         chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Init summary')]
 
         # Add new Pinned Init summary
-        init_summary = user_input[5:]
+        init_summary = command_input[5:]
         chat_history.append({'role': 'user', 'content': f'Pinned Init summary: {init_summary}'})
         print(f"Pinned Init summary: {init_summary}")
 
-    elif user_input.startswith('HANDOFF'):
-        # Remove any previous Pinned Handoff context
-        chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Handoff context')]
+    elif command_input.startswith('RETRIEVE_HANDOFF'):
+        # This assumes that the handoff filename will be provided in the format: 'Retrieve_HANDOFF_filename.txt'
+        handoff_filename = command_input.split('_')[2].strip()
+        if not handoff_filename:
+            print("No handoff file specified.")
+            return
+    
+        handoff_filepath = f"{logging_folder}/{handoff_filename}"
+        if not os.path.exists(handoff_filepath):
+            print(f"No such file exists: {handoff_filepath}")
+            return
+    
+        with open(handoff_filepath, "r") as file:
+            handoff_summary = file.read().strip()
+    
+        # Check if this handoff summary is already in the chat history
+        if any(entry['content'].startswith(f'Pinned Handoff context: {handoff_summary}') for entry in chat_history):
+            print("Handoff summary already in chat history.")
+            return
+    
+        # If not, add the summary to the chat history
+        chat_history.append({'role': 'assistant', 'content': f'Pinned Handoff context: {handoff_summary}'})
+        print(f"Pinned Handoff context from file: {handoff_summary}")
 
-        # Add new Pinned Handoff context
-        handoff_context = user_input[7:]
-        chat_history.append({'role': 'user', 'content': f'Pinned Handoff context: {handoff_context}'})
-        print(f"Pinned Handoff context: {handoff_context}")
-
-    elif user_input.startswith('PIN'):
-        exemption_context = user_input[4:]
-        chat_history.append({'role': 'user', 'content': f'Exemption: {exemption_context}'})
-        print(f"Exemption pinned: {exemption_context}")
-
-    elif user_input == 'CLEAR':
+    elif command_input.startswith("CLEAR_NON_PINNED"):
         # Keep only the Pinned Init summary, Pinned Handoff context and Exemptions
         chat_history = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context') or entry['content'].startswith('Exemption')]
         print("Chat history cleared, only pinned summaries and exemptions remain.")
 
-        elif user_input.startswith("CLEAR%"):
-            # Extract the percentage value from the command
-            try:
-                percentage_to_clear = float(user_input[6:]strip()) / 100
-                if 0 <= percentage_to_clear <= 1:
-                    clear_chat_history(percentage_to_clear)
-                else:
-                    print("Invalid percentage. Please enter a number between 0 and 100.")
-            except ValueError:
-                print("Invalid command format. Expected format is 'CLEAR%{number}'.")
+    elif command_input.startswith("CLEAR%"):
+        # Extract the percentage value from the command
+        try:
+            percentage_to_clear = float(command_input[6:].strip()) / 100
+            if 0 <= percentage_to_clear <= 1:
+                clear_chat_history(percentage_to_clear)
+            else:
+                print("Invalid percentage. Please enter a number between 0 and 100.")
+        except ValueError:
+            print("Invalid command format. Expected format is 'CLEAR%{number}'.")
 
-
-    elif user_input == 'CLEARALL':
+    elif command_input.startswith("CLEARALL"):
         # Keep only the Pinned Init summary and Pinned Handoff context
         chat_history = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context')]
         print("Chat history cleared, only pinned summaries remain.")
 
-    elif user_input.startswith('SAVEPINNEDINIT'):
+    elif command_input.startswith('SAVEPINNEDINIT'):
         pinned_init_summaries = [entry['content'][19:] for entry in chat_history if entry['content'].startswith('Pinned Init summary')]
         write_content_to_file("\n".join(pinned_init_summaries), "pinned_init_summaries.txt")
 
-    elif user_input.startswith('SAVEPINNEDHANDOFF'):
+    elif command_input.startswith('SAVEPINNEDHANDOFF'):
         pinned_handoff_contexts = [entry['content'][22:] for entry in chat_history if entry['content'].startswith('Pinned Handoff context')]
         write_content_to_file("\n".join(pinned_handoff_contexts), "pinned_handoff_contexts.txt")
 
-    elif user_input.startswith('SAVEEXEMPTIONS'):
+    elif command_input.startswith('SAVEEXEMPTIONS'):
         exemptions = [entry['content'][10:] for entry in chat_history if entry['content'].startswith('Exemption')]
         write_content_to_file("\n".join(exemptions), "exemptions.txt")
 
-    elif user_input.startswith('SAVEPINNED'):
+    elif command_input.startswith('SAVEPINNED'):
         pinned_entries = [entry['content'] for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context')]
         write_content_to_file("\n".join(pinned_entries), "pinned_entries.txt")
 
-    elif user_input.startswith('SAVEALL'):
+    elif command_input.startswith('SAVEALL'):
         all_entries = [f"{entry['role']}: {entry['content']}" for entry in chat_history]
         write_content_to_file("\n".join(all_entries), "all_entries.txt")
 
-    elif user_input == 'HELP_VISIBILITY':
+    elif command_input == 'HELP_VISIBILITY':
         display_message("system", """
         HIDE - Toggle the visibility of user text.
         HIDE_AI - Toggle the visibility of AI responses.
@@ -443,36 +352,47 @@ def handle_commands(user_input):
         HIDE_USER_COMMANDS - Toggle the visibility of commands issued by the user.
     """)
 
-
-    elif user_input == 'HIDE':
+    elif command_input == 'HIDE':
         show_user_text = not show_user_text
         if show_user_text:
             display_message("system", "User text will now be displayed.")
         else:
             display_message("system", "User text will now be hidden.")
 
-    elif user_input == 'HIDE_AI':
+    elif command_input == 'HIDE_AI':
         show_ai_text = not show_ai_text
         if show_ai_text:
             display_message("system", "AI text will now be displayed.")
         else:
             display_message("system", "AI text will now be hidden.")
 
-    elif user_input == 'HIDE_AI_COMMANDS':
+    elif command_input == 'HIDE_AI_COMMANDS':
         hide_ai_commands = not hide_ai_commands
         if hide_ai_commands:
             display_message("system", "AI commands will now be hidden.")
         else:
             display_message("system", "AI commands will now be displayed.")
 
-    elif user_input == 'HIDE_USER_COMMANDS':
-        hide_user_commands = not hide_user_commands
-        if hide_user_commands:
-            display_message("system", "User commands will now be hidden.")
-        else:
-            display_message("system", "User commands will now be displayed.")
+elif command_input == 'HIDE_USER_COMMANDS':
+    hide_user_commands = not hide_user_commands
+    if hide_user_commands:
+        display_message("system", "User commands will now be hidden.")
+    else:
+        display_message("system", "User commands will now be displayed.")
 
+else:
+    # If none of the commands match
+    # Use the new display function for the AI's text
+    role = "assistant" if not is_user else "user"
+    if not (is_user and hide_user_commands) or (not is_user and hide_ai_commands):
+        display_message(role, command_input)
+        chat_history.append({"role": role, "content": command_input})
 
+    token_count = count_tokens_in_history(chat_history)
+    tokens_in_message = len(list(tokenizer.tokenize(command_input)))
+    token_counter += tokens_in_message
+    save_chat_history_to_file()
+    print(f"Current token count in chat history: {token_count}")
 
 
 
