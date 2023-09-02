@@ -22,11 +22,14 @@ pause_duration = 1.8
 sampling_rate = 44100  
 audio_buffer = []
 
-
+POWER_WORD = "POWER_WORD"
 chat_history = []
 CONTEXT_LENGTH = 8192  # or whatever the max token count for GPT-4 is
 disable_commands = False  # Global boolean variable to track whether command processing is currently disabled
 show_user_text = True
+show_ai_text = True
+hide_ai_commands = False
+hide_user_commands = False
 tokenizer = Tokenizer()
 token_limit = 5000  # Set this to whatever limit you want
 token_counter = 0  # This will keep track of the tokens used so far
@@ -75,48 +78,51 @@ def threshold_check(current_token_count, total_tokens, threshold_percentage):
     threshold = total_tokens * threshold_percentage / 100
     return current_token_count > threshold
 
-
+def is_command(message):
+    return message.startswith(POWER_WORD)
 
 # Function to send prompt to ChatGPT
 def send_prompt_to_chatgpt(prompt, image_path=None):
-    messages = [{"role": "system", "content": "You are a helpful assistant."}, {"role": "user", "content": prompt}]
+    # Append the timestamp to the prompt
+    prompt_with_timestamp = f"{prompt} ~|~|~ {datetime.datetime.now()}"
     
-    global chat_history_lock
-
-    with chat_history_lock:
-        # append user message to chat history
-        chat_history.append({"role": "user", "content": prompt})
-
-        if image_path is not None:
-            with open(image_path, "rb") as image_file:
-                image_data = image_file.read()
-            messages.append({"role": "user", "content": {"image": image_data}})
+    messages = [{"role": "system", "content": "You are a helpful assistant."}, {"role": "user", "content": prompt_with_timestamp}]
     
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=messages,
-            max_tokens=100000,
-            n=1,
-            temperature=0.5,
-        )
+    # append user message to chat history
+    chat_history.append({"role": "user", "content": prompt_with_timestamp})
 
-        # append ChatGPT's response to chat history
-        chat_history.append({"role": "system", "content": response.choices[0].message['content'].strip()})
+    if image_path is not None:
+        with open(image_path, "rb") as image_file:
+            image_data = image_file.read()
+        messages.append({"role": "user", "content": {"image": image_data}})
     
-        # Count tokens and display
-        token_count_message = count_tokens_in_history(chat_history)
-        current_token_count = int(token_count_message.split()[0])
-        
-        # Print the user's text if show_user_text is True
-        if show_user_text:
-            print("User text:", prompt)
+    response = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=messages,
+        max_tokens=100000,
+        n=1,
+        temperature=0.5,
+    )
 
-        # Count tokens and check threshold
-        if threshold_check(current_token_count, CONTEXT_LENGTH, 75):
-            chat_history.append({"role": "system", "content": f"Current token count: {current_token_count} out of {CONTEXT_LENGTH} available"})
-        
-        print(f"Current token count in chat history: {token_count_message}")
-        return response.choices[0].message['content'].strip()
+    # append ChatGPT's response to chat history
+    chat_history.append({"role": "assistant", "content": response.choices[0].message['content'].strip()})
+    
+    # Display the user's text if show_user_text is True
+    if show_user_text:
+        display_message("user", prompt)
+
+    # Display AI's response based on your visibility settings
+    display_message("assistant", response.choices[0].message['content'].strip())
+    
+    # Count tokens and display
+    token_count_message = count_tokens_in_history(chat_history)
+    current_token_count = int(token_count_message.split()[0])
+    
+    # Count tokens and check threshold
+    if threshold_check(current_token_count, CONTEXT_LENGTH, 75):
+        display_message("system", f"Current token count: {current_token_count} out of {CONTEXT_LENGTH} available")
+    
+    return response.choices[0].message['content'].strip()
 
 
 def write_content_to_file(content, file_name):
@@ -131,23 +137,43 @@ def process_chatgpt_response(response_text):
     global disable_commands
     global token_counter
 
-        if response_text.startswith('/*'):
-                disable_commands = True
-                return  # Return early
-        elif response_text.startswith('*/'):
-                disable_commands = False
-                return  # Return early
-        if disable_commands:
-                print("Command processing is currently disabled.")
-                return  # Return early
-        if response_text.startswith("VKB_CMD:"):
-                command = response_text[4:].strip()
-                if len(command) == 1:
-                    keyboard.press_and_release(command)
-                    print(f"Executed command: {command}")
-                else:
-                    pyautogui.write(command)
-                    print(f"Typed string: {command}")
+    response_text = f"{response_text}~|~|~{datetime.datetime.now()}"
+    
+    if response_text.startswith('/*'):
+        disable_commands = True
+        return
+    elif response_text.startswith('*/'):
+        disable_commands = False
+        return
+    if disable_commands:
+        print("Command processing is currently disabled.")
+        return
+    
+    if response_text.startswith("VKB_CMD:"):
+        # Strip off the "VKB_CMD:" prefix and split using the delimiter
+        command_section, timestamp = response_text[len("VKB_CMD:"):].split("~|~|~")
+        commands = command_section.strip().split(';')  # Split multiple commands
+        for command in commands:
+            command = command.strip()
+            if len(command) == 1:
+                keyboard.press_and_release(command)
+                print(f"Executed command: {command} at {timestamp}")
+            else:
+                pyautogui.write(command)
+                print(f"Typed string: {command} at {timestamp}")
+
+    elif response_text.startswith("CURSORCMD:"):
+        command_section = response_text[10:].strip()
+        commands = command_section.split(';')  # Split multiple commands
+        for command in commands:
+            cmd, x, y = command.strip().split(',')
+            if cmd == "click":
+                pyautogui.click(int(x), int(y))
+            elif cmd == "move":
+                pyautogui.moveTo(int(x), int(y))
+            elif cmd == "right_click":
+                pyautogui.rightClick(int(x), int(y))
+            print(f"Executed cursor command: {cmd} at ({x}, {y})")
         elif response_text.startswith("HANDOFF"):
                 handoff_summary = response_text[7:].strip() 
                 buffer.append(handoff_summary)
@@ -159,11 +185,7 @@ def process_chatgpt_response(response_text):
                 write_content_to_file("\n".join(all_entries), "all_entries.txt")
                 print("Handoff summary saved.")
                 restart_chatgpt_instance() 
-        elif response_text.startswith("CURSORCMD:"):
-                command = response_text[10:].strip()
-                x, y = map(int, command.split(','))  # Assuming coordinates are comma-separated
-                pyautogui.click(x, y)
-                print(f"Moved cursor and clicked at ({x}, {y})")
+
         elif response_text.startswith("PIN"):
                 exemption_context = response_text[4:].strip()
                 chat_history.append({'role': 'assistant', 'content': f'Exemption: {exemption_context}'})
@@ -251,20 +273,15 @@ def process_chatgpt_response(response_text):
         elif response_text.startswith('SAVEALL'):
                 all_entries = [f"{entry['role']}: {entry['content']}" for entry in chat_history]
                 write_content_to_file("\n".join(all_entries), "all_entries.txt")
-
-        else:
-            # Count tokens and display
-            token_count = count_tokens_in_history(chat_history)
-            print("ChatGPT response:", response_text)
-            # Update chat history with the current response
-            chat_history.append({"role": "assistant", "content": response_text})
-    
-            # Count tokens and display
-            token_count = count_tokens_in_history(chat_history)
-            tokens_in_message = len(list(tokenizer.tokenize(message)))
-            token_counter += tokens_in_message  # Add the token count of the current message to the running total
-            save_chat_history_to_file() 
-            print(f"Current token count in chat history: {token_count}")
+else:
+    # Use the new display function
+    display_message("assistant", response_text)
+    chat_history.append({"role": "assistant", "content": response_text})
+    token_count = count_tokens_in_history(chat_history)
+    tokens_in_message = len(list(tokenizer.tokenize(message)))
+    token_counter += tokens_in_message
+    save_chat_history_to_file()
+    print(f"Current token count in chat history: {token_count}")
 
 
 def initiate_and_handoff():
@@ -307,10 +324,10 @@ def handle_commands(user_input):
     global disable_commands
     global show_user_text
 
-    if user_input.lower() == 'terminate_instance':
+    if user_input.startswith('TERMINATE_INSTANCE'):
         terminate_instance()
 
-    elif user_input.lower() == 'recall':
+    elif user_input.startswith('RECALL'):
         recall_previous_summary(character_name)
     
     elif user_input.startswith('INIT'):
@@ -378,13 +395,44 @@ def handle_commands(user_input):
         all_entries = [f"{entry['role']}: {entry['content']}" for entry in chat_history]
         write_content_to_file("\n".join(all_entries), "all_entries.txt")
 
+    elif user_input == 'HELP_VISIBILITY':
+        display_message("system", """
+        HIDE - Toggle the visibility of user text.
+        HIDE_AI - Toggle the visibility of AI responses.
+        HIDE_AI_COMMANDS - Toggle the visibility of commands given by the AI.
+        HIDE_USER_COMMANDS - Toggle the visibility of commands issued by the user.
+    """)
+
 
     elif user_input == 'HIDE':
         show_user_text = not show_user_text
         if show_user_text:
-            print("User text will now be displayed.")
+            display_message("system", "User text will now be displayed.")
         else:
-            print("User text will now be hidden.")
+            display_message("system", "User text will now be hidden.")
+
+...
+    elif user_input == 'HIDE_AI':
+        show_ai_text = not show_ai_text
+        if show_ai_text:
+            display_message("system", "AI text will now be displayed.")
+        else:
+            display_message("system", "AI text will now be hidden.")
+
+    elif user_input == 'HIDE_AI_COMMANDS':
+        hide_ai_commands = not hide_ai_commands
+        if hide_ai_commands:
+            display_message("system", "AI commands will now be hidden.")
+        else:
+            display_message("system", "AI commands will now be displayed.")
+
+    elif user_input == 'HIDE_USER_COMMANDS':
+        hide_user_commands = not hide_user_commands
+        if hide_user_commands:
+            display_message("system", "User commands will now be hidden.")
+        else:
+            display_message("system", "User commands will now be displayed.")
+
 
 # Function to check if daily summary has been completed
 def daily_summary_completed(date):
