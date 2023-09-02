@@ -125,41 +125,10 @@ def send_prompt_to_chatgpt(prompt, image_path=None):
     return response.choices[0].message['content'].strip()
 
 
-def write_content_to_file(content, file_name):
-        with open(file_name, "w") as f:
-            f.write(content)
-        print(f"Content saved to {file_name}")
-
-
 # Define process_chatgpt_response function before calling it
+
 def process_chatgpt_response(response_text):
     handle_commands(response_text, is_user=False)
-    global chat_history
-    global disable_commands
-    global token_counter
-
-    response_text = f"{response_text}~|~|~{datetime.datetime.now()}"
-    
-    if response_text.startswith('/*'):
-        disable_commands = True
-        return
-    elif response_text.startswith('*/'):
-        disable_commands = False
-        return
-    if disable_commands:
-        print("Command processing is currently disabled.")
-        return
-    
-
-else:
-    # Use the new display function
-    display_message("assistant", response_text)
-    chat_history.append({"role": "assistant", "content": response_text})
-    token_count = count_tokens_in_history(chat_history)
-    tokens_in_message = len(list(tokenizer.tokenize(message)))
-    token_counter += tokens_in_message
-    save_chat_history_to_file()
-    print(f"Current token count in chat history: {token_count}")
 
 
 
@@ -396,6 +365,11 @@ else:
 
 
 
+
+def write_content_to_file(content, file_name):
+        with open(file_name, "w") as f:
+            f.write(content)
+        print(f"Content saved to {file_name}")
 
 def initiate_and_handoff():
     response_text = send_prompt_to_chatgpt(init_prompt)
