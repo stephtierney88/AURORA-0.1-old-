@@ -133,6 +133,7 @@ def write_content_to_file(content, file_name):
 
 # Define process_chatgpt_response function before calling it
 def process_chatgpt_response(response_text):
+    handle_commands(response_text, is_user=False)
     global chat_history
     global disable_commands
     global token_counter
@@ -149,7 +150,73 @@ def process_chatgpt_response(response_text):
         print("Command processing is currently disabled.")
         return
     
-    if response_text.startswith("VKB_CMD:"):
+
+else:
+    # Use the new display function
+    display_message("assistant", response_text)
+    chat_history.append({"role": "assistant", "content": response_text})
+    token_count = count_tokens_in_history(chat_history)
+    tokens_in_message = len(list(tokenizer.tokenize(message)))
+    token_counter += tokens_in_message
+    save_chat_history_to_file()
+    print(f"Current token count in chat history: {token_count}")
+
+
+
+# Function to handle user input
+def user_input_handler():
+    global chat_history
+    global disable_commands
+    while running:
+        user_input = input("Type your message, 'recall' to read previous summaries, or 'terminate_instance' to end: ")
+
+        if user_input.startswith('/*'):
+            disable_commands = True
+            continue  # Skip the rest of the loop
+        elif user_input.startswith('*/'):
+            disable_commands = False
+            continue  # Skip the rest of the loop
+
+        if disable_commands:
+            print("Command processing is currently disabled.")
+            continue  # Skip the rest of the loop
+
+        # Move all command handling to the handle_commands function
+         handle_commands(user_input)
+
+	 response_text = send_prompt_to_chatgpt(user_input)
+  	 process_chatgpt_response(response_text)
+            if buffer:
+                handoff_prompt = buffer[-1]
+                response_text = send_prompt_to_chatgpt(handoff_prompt)
+
+
+
+
+
+
+def handle_commands(command_input, is_user=True):
+    global chat_history
+    global disable_commands
+    global show_user_text
+    # ... (all the other global variables needed for this function)
+
+    command_input = f"{command_input}~|~|~{datetime.datetime.now()}"
+
+    if command_input.startswith('/*'):
+        disable_commands = True
+        return
+    elif command_input.startswith('*/'):
+        disable_commands = False
+        return
+    if disable_commands:
+        print("Command processing is currently disabled.")
+        return 
+
+    # For each possible command, check if it's present in command_input
+    # Then execute its corresponding action
+
+        if response_text.startswith("VKB_CMD:"):
         # Strip off the "VKB_CMD:" prefix and split using the delimiter
         command_section, timestamp = response_text[len("VKB_CMD:"):].split("~|~|~")
         commands = command_section.strip().split(';')  # Split multiple commands
@@ -191,9 +258,11 @@ def process_chatgpt_response(response_text):
                 chat_history.append({'role': 'assistant', 'content': f'Exemption: {exemption_context}'})
                 print(f"Exemption pinned: {exemption_context}")
 
-        elif response_text.startswith("TERMINATE_INSTANCE"):
+        elif response_text.startswith("SHUTDOWN_EXIT_INSTANCE"):
                 shutdown_chatgpt_instance_and_exit()
 
+        elif user_input.startswith('TERMINATE_INSTANCE'):
+                terminate_instance()
 
         elif response_text.startswith("RECALL"):
                 recall_previous_summary(character_name)
@@ -230,7 +299,6 @@ def process_chatgpt_response(response_text):
     # If not, add the summary to the chat history
     chat_history.append({'role': 'assistant', 'content': f'Pinned Handoff context: {handoff_summary}'})
     print(f"Pinned Handoff context from file: {handoff_summary}")
-
 
 
         elif response_textstartswith("CLEAR_NON_PINNED"):
@@ -273,52 +341,24 @@ def process_chatgpt_response(response_text):
         elif response_text.startswith('SAVEALL'):
                 all_entries = [f"{entry['role']}: {entry['content']}" for entry in chat_history]
                 write_content_to_file("\n".join(all_entries), "all_entries.txt")
-else:
-    # Use the new display function
-    display_message("assistant", response_text)
-    chat_history.append({"role": "assistant", "content": response_text})
-    token_count = count_tokens_in_history(chat_history)
-    tokens_in_message = len(list(tokenizer.tokenize(message)))
-    token_counter += tokens_in_message
-    save_chat_history_to_file()
-    print(f"Current token count in chat history: {token_count}")
 
+    else:
+        # If none of the commands match
+        # Use the new display function for the AI's text
+        role = "assistant" if not is_user else "user"
+        if not (is_user and hide_user_commands) or (not is_user and hide_ai_commands):
+            display_message(role, command_input)
+            chat_history.append({"role": role, "content": command_input})
 
-def initiate_and_handoff():
-    response_text = send_prompt_to_chatgpt(init_prompt)
-    process_chatgpt_response(response_text)
-    if buffer:
-        handoff_prompt = buffer[-1]
-        response_text = send_prompt_to_chatgpt(handoff_prompt)
+        token_count = count_tokens_in_history(chat_history)
+        tokens_in_message = len(list(tokenizer.tokenize(command_input)))
+        token_counter += tokens_in_message
+        save_chat_history_to_file()
+        print(f"Current token count in chat history: {token_count}")
 
 
 
-
-# Define clear_chat_history function with percentage
-def clear_chat_history(percentage):
-    global chat_history
-
-    with chat_history_lock:
-        # Number of chats to keep
-        num_chats_to_keep = int(len(chat_history) * (1-percentage))
-
-        pinned_entries = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context')]
-        exempted_entries = [entry for entry in chat_history if entry['content'].startswith('Exemption')]
-
-        # Concatenate the lists and sort them by their index in the original chat_history
-        exempted_and_pinned_entries = sorted(pinned_entries + exempted_entries, key=chat_history.index)
-
-        # If the number of chats to keep is less than the length of the exempted_and_pinned_entries list
-        # Keep only the most recent exempted and pinned entries
-        if num_chats_to_keep < len(exempted_and_pinned_entries):
-            chat_history = exempted_and_pinned_entries[-num_chats_to_keep:]
-        else:
-            non_exempted_entries = [entry for entry in chat_history if entry not in exempted_and_pinned_entries]
-            chat_history = non_exempted_entries[-(num_chats_to_keep-len(exempted_and_pinned_entries)):] + exempted_and_pinned_entries
-            
-        print(f"Chat history cleared, {int(percentage*100)}% chats are removed, only most recent {num_chats_to_keep} entries, pinned summaries, and exemptions remain.")
-
-# Function to handle user commands
+# Function to handle user commands OLD
 def handle_commands(user_input):
     global chat_history
     global disable_commands
@@ -411,7 +451,6 @@ def handle_commands(user_input):
         else:
             display_message("system", "User text will now be hidden.")
 
-...
     elif user_input == 'HIDE_AI':
         show_ai_text = not show_ai_text
         if show_ai_text:
@@ -432,6 +471,45 @@ def handle_commands(user_input):
             display_message("system", "User commands will now be hidden.")
         else:
             display_message("system", "User commands will now be displayed.")
+
+
+
+
+
+
+def initiate_and_handoff():
+    response_text = send_prompt_to_chatgpt(init_prompt)
+    process_chatgpt_response(response_text)
+    if buffer:
+        handoff_prompt = buffer[-1]
+        response_text = send_prompt_to_chatgpt(handoff_prompt)
+
+
+# Define clear_chat_history function with percentage
+def clear_chat_history(percentage):
+    global chat_history
+
+    with chat_history_lock:
+        # Number of chats to keep
+        num_chats_to_keep = int(len(chat_history) * (1-percentage))
+
+        pinned_entries = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context')]
+        exempted_entries = [entry for entry in chat_history if entry['content'].startswith('Exemption')]
+
+        # Concatenate the lists and sort them by their index in the original chat_history
+        exempted_and_pinned_entries = sorted(pinned_entries + exempted_entries, key=chat_history.index)
+
+        # If the number of chats to keep is less than the length of the exempted_and_pinned_entries list
+        # Keep only the most recent exempted and pinned entries
+        if num_chats_to_keep < len(exempted_and_pinned_entries):
+            chat_history = exempted_and_pinned_entries[-num_chats_to_keep:]
+        else:
+            non_exempted_entries = [entry for entry in chat_history if entry not in exempted_and_pinned_entries]
+            chat_history = non_exempted_entries[-(num_chats_to_keep-len(exempted_and_pinned_entries)):] + exempted_and_pinned_entries
+            
+        print(f"Chat history cleared, {int(percentage*100)}% chats are removed, only most recent {num_chats_to_keep} entries, pinned summaries, and exemptions remain.")
+
+
 
 
 # Function to check if daily summary has been completed
@@ -544,32 +622,7 @@ def recall_previous_summary(character_name):
     else:
         print("No initial profile summary found.")
 
-# Function to handle user input
-def user_input_handler():
-    global chat_history
-    global disable_commands
-    while running:
-        user_input = input("Type your message, 'recall' to read previous summaries, or 'terminate_instance' to end: ")
 
-        if user_input.startswith('/*'):
-            disable_commands = True
-            continue  # Skip the rest of the loop
-        elif user_input.startswith('*/'):
-            disable_commands = False
-            continue  # Skip the rest of the loop
-
-        if disable_commands:
-            print("Command processing is currently disabled.")
-            continue  # Skip the rest of the loop
-
-        # Move all command handling to the handle_commands function
-         handle_commands(user_input)
-
-	 response_text = send_prompt_to_chatgpt(user_input)
-  	 process_chatgpt_response(response_text)
-            if buffer:
-                handoff_prompt = buffer[-1]
-                response_text = send_prompt_to_chatgpt(handoff_prompt)
 
 # Function to take a screenshot
 def take_screenshot():
