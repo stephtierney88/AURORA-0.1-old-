@@ -22,23 +22,28 @@ pause_duration = 1.8
 sampling_rate = 44100  
 audio_buffer = []
 
-POWER_WORD = "POWER_WORD"
+POWER_WORD = "POWER_WORD "
 chat_history = []
-CONTEXT_LENGTH = 8192  # or whatever the max token count for GPT-4 is
+CONTEXT_LENGTH = 30192  # or whatever the max token count for GPT-4 is
 disable_commands = False  # Global boolean variable to track whether command processing is currently disabled
 show_user_text = True
 show_ai_text = True
 hide_ai_commands = False
 hide_user_commands = False
 tokenizer = Tokenizer()
-token_limit = 5000  # Set this to whatever limit you want
+token_limit = 15000  # Set this to whatever limit you want
 token_counter = 0  # This will keep track of the tokens used so far
 character_name = "Aurora"
+
+# Additional global variables
+AUTO_PROMPT_INTERVAL = 10  # Auto-prompt every 30 seconds, but you can change this value
+enable_auto_prompt = True
+auto_prompt_message = "Auto Prompt."  # Default auto message 
 
 # Function to run the audio stream
 def run_audio_stream():
     with sd.InputStream(callback=audio_callback):
-        sd.sleep(1000000)  # This will keep the audio stream open indefinitely. Adjust as needed.
+        sd.sleep(100000000)  # This will keep the audio stream open indefinitely. Adjust as needed.
 
 
 
@@ -89,7 +94,7 @@ def send_prompt_to_chatgpt(prompt, image_path=None):
     messages = [{"role": "system", "content": "You are a helpful assistant."}, {"role": "user", "content": prompt_with_timestamp}]
     
     # append user message to chat history
-    chat_history.append({"role": "user", "content": prompt_with_timestamp})
+    .append({"role": "user", "content": prompt_with_timestamp})
 
     if image_path is not None:
         with open(image_path, "rb") as image_file:
@@ -105,7 +110,7 @@ def send_prompt_to_chatgpt(prompt, image_path=None):
     )
 
     # append ChatGPT's response to chat history
-    chat_history.append({"role": "assistant", "content": response.choices[0].message['content'].strip()})
+    .append({"role": "assistant", "content": response.choices[0].message['content'].strip()})
     
     # Display the user's text if show_user_text is True
     if show_user_text:
@@ -115,7 +120,7 @@ def send_prompt_to_chatgpt(prompt, image_path=None):
     display_message("assistant", response.choices[0].message['content'].strip())
     
     # Count tokens and display
-    token_count_message = count_tokens_in_history(chat_history)
+    token_count_message = count_tokens_in_history()
     current_token_count = int(token_count_message.split()[0])
     
     # Count tokens and check threshold
@@ -134,10 +139,23 @@ def process_chatgpt_response(response_text):
 
 # Function to handle user input
 def user_input_handler():
-    global chat_history
+    global 
     global disable_commands
+    global last_interaction_time
     while running:
+        # Check the elapsed time since the last interaction
+        elapsed_time = time.time() - last_interaction_time
+        
+        if enable_auto_prompt and elapsed_time > AUTO_PROMPT_INTERVAL:
+            # Reset the last interaction time
+            last_interaction_time = time.time()
+            
+            # Trigger auto prompt
+            auto_prompt_response = send_prompt_to_chatgpt(auto_prompt_message)
+            process_chatgpt_response(auto_prompt_response)
+
         user_input = input("Type your message, 'recall' to read previous summaries, or 'terminate_instance' to end: ")
+        last_interaction_time = time.time()  # Update the last interaction time
 
         if user_input.startswith('/*'):
             disable_commands = True
@@ -151,13 +169,15 @@ def user_input_handler():
             continue  # Skip the rest of the loop
 
         # Move all command handling to the handle_commands function
-         handle_commands(user_input)
+        if is_command(user_input):
+            handle_commands(user_input, is_user=True)
+        else:
+            response_text = send_prompt_to_chatgpt(user_input)
+            process_chatgpt_response(response_text)
 
-	 response_text = send_prompt_to_chatgpt(user_input)
-  	 process_chatgpt_response(response_text)
-            if buffer:
-                handoff_prompt = buffer[-1]
-                response_text = send_prompt_to_chatgpt(handoff_prompt)
+        if buffer:
+            handoff_prompt = buffer[-1]
+            response_text = send_prompt_to_chatgpt(handoff_prompt)
 
 
 
@@ -172,196 +192,215 @@ def handle_commands(command_input, is_user=True):
     global hide_ai_commands
     global hide_user_commands
     
-    command_input = f"{command_input}~|~|~{datetime.datetime.now()}"
+    if is_command(command_input):
+        command_input = command_input.replace(POWER_WORD, "").strip()
+        command_input = f"{command_input}~|~|~{datetime.datetime.now()}"
 
-    if command_input.startswith('/*'):
-        disable_commands = True
-        return
-    elif command_input.startswith('*/'):
-        disable_commands = False
-        return
-    if disable_commands:
-        print("Command processing is currently disabled.")
-        return 
+        if command_input.startswith('/*'):
+            disable_commands = True
+            return
+        elif command_input.startswith('*/'):
+            disable_commands = False
+            return
+        if disable_commands:
+            print("Command processing is currently disabled.")
+            return 
 
     # For each possible command, check if it's present in command_input
     # Then execute its corresponding action
 
-    if command_input.startswith("VKB_CMD:"):
+        if command_input.startswith("VKB_CMD:"):
         # Strip off the "VKB_CMD:" prefix and split using the delimiter
-        command_section, timestamp = command_input[len("VKB_CMD:"):].split("~|~|~")
-        commands = command_section.strip().split(';')  # Split multiple commands
-        for command in commands:
-            command = command.strip()
-            if len(command) == 1:
-                keyboard.press_and_release(command)
-                print(f"Executed command: {command} at {timestamp}")
-            else:
-                pyautogui.write(command)
-                print(f"Typed string: {command} at {timestamp}")
+            command_section, timestamp = command_input[len("VKB_CMD:"):].split("~|~|~")
+            commands = command_section.strip().split(';')  # Split multiple commands
+            for command in commands:
+                command = command.strip()
+                if len(command) == 1:
+                    keyboard.press_and_release(command)
+                    print(f"Executed command: {command} at {timestamp}")
+                else:
+                    pyautogui.write(command)
+                    print(f"Typed string: {command} at {timestamp}")
 
-    elif command_input.startswith("CURSORCMD:"):
-        command_section = command_input[10:].strip()
-        commands = command_section.split(';')  # Split multiple commands
-        for command in commands:
-            cmd, x, y = command.strip().split(',')
-            if cmd == "click":
-                pyautogui.click(int(x), int(y))
-            elif cmd == "move":
-                pyautogui.moveTo(int(x), int(y))
-            elif cmd == "right_click":
-                pyautogui.rightClick(int(x), int(y))
-            print(f"Executed cursor command: {cmd} at ({x}, {y})")
+        elif command_input.startswith("CURSORCMD:"):
+            command_section = command_input[10:].strip()
+            commands = command_section.split(';')  # Split multiple commands
+            for command in commands:
+                cmd, x, y = command.strip().split(',')
+                if cmd == "click":
+                    pyautogui.click(int(x), int(y))
+                elif cmd == "move":
+                    pyautogui.moveTo(int(x), int(y))
+                elif cmd == "right_click":
+                    pyautogui.rightClick(int(x), int(y))
+                print(f"Executed cursor command: {cmd} at ({x}, {y})")
 
-    elif command_input.startswith("HANDOFF"):
-        handoff_summary = command_input[7:].strip() 
-        buffer.append(handoff_summary)
-        timestamp = int(time.time())
-        with open(f"{logging_folder}/handoff_{timestamp}.txt", "w") as log_file:
-            log_file.write(handoff_summary)
-        chat_history.append({'role': 'assistant', 'content': f'Pinned Handoff context: {handoff_summary}'})
-        all_entries = [f"{entry['role']}: {entry['content']}" for entry in chat_history]
-        write_content_to_file("\n".join(all_entries), "all_entries.txt")
-        print("Handoff summary saved.")
-        restart_chatgpt_instance()
+        elif command_input.startswith("HANDOFF"):
+            handoff_summary = command_input[7:].strip() 
+            buffer.append(handoff_summary)
+            timestamp = int(time.time())
+            with open(f"{logging_folder}/handoff_{timestamp}.txt", "w") as log_file:
+                log_file.write(handoff_summary)
+            chat_history.append({'role': 'assistant', 'content': f'Pinned Handoff context: {handoff_summary}'})
+            all_entries = [f"{entry['role']}: {entry['content']}" for entry in chat_history]
+            write_content_to_file("\n".join(all_entries), "all_entries.txt")
+            print("Handoff summary saved.")
+            restart_chatgpt_instance()
 
-    elif command_input.startswith("PIN"):
-        exemption_context = command_input[4:].strip()
-        chat_history.append({'role': 'assistant', 'content': f'Exemption: {exemption_context}'})
-        print(f"Exemption pinned: {exemption_context}")
+        elif command_input.startswith("PIN"):
+            exemption_context = command_input[4:].strip()
+            chat_history.append({'role': 'assistant', 'content': f'Exemption: {exemption_context}'})
+            print(f"Exemption pinned: {exemption_context}")
 
-    elif command_input.startswith("SHUTDOWN_EXIT_INSTANCE"):
-        shutdown_chatgpt_instance_and_exit()
+        elif command_input.startswith("TOGGLE_AUTO_PROMPT"):
+            global enable_auto_prompt
+            enable_auto_prompt = not enable_auto_prompt
+            if enable_auto_prompt:
+                display_message("system", "Auto-prompting has been enabled.")
+        else:
+                display_message("system", "Auto-prompting has been disabled."
 
-    elif command_input.startswith('TERMINATE_INSTANCE'):
-        terminate_instance()
+        elif command_input.startswith("SHUTDOWN_EXIT_INSTANCE"):
+            shutdown_chatgpt_instance_and_exit()
 
-    elif command_input.startswith("RECALL"):
-        recall_previous_summary(character_name)
+        elif command_input.startswith('TERMINATE_INSTANCE'):
+            terminate_instance()
+
+        elif command_input.startswith("RECALL"):
+            recall_previous_summary(character_name)
     
-    elif command_input.startswith('INIT'):
-        # Remove any previous Pinned Init summary
-        chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Init summary')]
+        elif command_input.startswith('INIT'):
+            # Remove any previous Pinned Init summary
+            chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Init summary')]
 
         # Add new Pinned Init summary
-        init_summary = command_input[5:]
-        chat_history.append({'role': 'user', 'content': f'Pinned Init summary: {init_summary}'})
-        print(f"Pinned Init summary: {init_summary}")
+            init_summary = command_input[5:]
+            chat_history.append({'role': 'user', 'content': f'Pinned Init summary: {init_summary}'})
+            print(f"Pinned Init summary: {init_summary}")
 
-    elif command_input.startswith('RETRIEVE_HANDOFF'):
+        elif command_input.startswith('RETRIEVE_HANDOFF'):
         # This assumes that the handoff filename will be provided in the format: 'Retrieve_HANDOFF_filename.txt'
-        handoff_filename = command_input.split('_')[2].strip()
-        if not handoff_filename:
-            print("No handoff file specified.")
-            return
+            handoff_filename = command_input.split('_')[2].strip()
+            if not handoff_filename:
+                print("No handoff file specified.")
+                return
     
-        handoff_filepath = f"{logging_folder}/{handoff_filename}"
-        if not os.path.exists(handoff_filepath):
-            print(f"No such file exists: {handoff_filepath}")
-            return
+            handoff_filepath = f"{logging_folder}/{handoff_filename}"
+            if not os.path.exists(handoff_filepath):
+                print(f"No such file exists: {handoff_filepath}")
+                return
     
-        with open(handoff_filepath, "r") as file:
-            handoff_summary = file.read().strip()
+            with open(handoff_filepath, "r") as file:
+                handoff_summary = file.read().strip()
     
         # Check if this handoff summary is already in the chat history
-        if any(entry['content'].startswith(f'Pinned Handoff context: {handoff_summary}') for entry in chat_history):
-            print("Handoff summary already in chat history.")
-            return
+            if any(entry['content'].startswith(f'Pinned Handoff context: {handoff_summary}') for entry in chat_history):
+                print("Handoff summary already in chat history.")
+             return
     
         # If not, add the summary to the chat history
-        chat_history.append({'role': 'assistant', 'content': f'Pinned Handoff context: {handoff_summary}'})
-        print(f"Pinned Handoff context from file: {handoff_summary}")
+            chat_history.append({'role': 'assistant', 'content': f'Pinned Handoff context: {handoff_summary}'})
+            print(f"Pinned Handoff context from file: {handoff_summary}")
 
-    elif command_input.startswith("CLEAR_NON_PINNED"):
+        elif command_input.startswith("CLEAR_NON_PINNED"):
         # Keep only the Pinned Init summary, Pinned Handoff context and Exemptions
-        chat_history = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context') or entry['content'].startswith('Exemption')]
-        print("Chat history cleared, only pinned summaries and exemptions remain.")
+            chat_history = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context') or entry['content'].startswith('Exemption')]
+            print("Chat history cleared, only pinned summaries and exemptions remain.")
 
-    elif command_input.startswith("CLEAR%"):
+        elif command_input.startswith("CLEAR%"):
         # Extract the percentage value from the command
-        try:
-            percentage_to_clear = float(command_input[6:].strip()) / 100
-            if 0 <= percentage_to_clear <= 1:
-                clear_chat_history(percentage_to_clear)
-            else:
-                print("Invalid percentage. Please enter a number between 0 and 100.")
-        except ValueError:
-            print("Invalid command format. Expected format is 'CLEAR%{number}'.")
+            try:
+                percentage_to_clear = float(command_input[6:].strip()) / 100
+                if 0 <= percentage_to_clear <= 1:
+                    clear_chat_history(percentage_to_clear)
+                else:
+                    print("Invalid percentage. Please enter a number between 0 and 100.")
+            except ValueError:
+                print("Invalid command format. Expected format is 'CLEAR%{number}'.")
 
-    elif command_input.startswith("CLEARALL"):
+        elif command_input.startswith("CLEARALL"):
         # Keep only the Pinned Init summary and Pinned Handoff context
-        chat_history = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context')]
-        print("Chat history cleared, only pinned summaries remain.")
+            chat_history = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context')]
+            print("Chat history cleared, only pinned summaries remain.")
 
-    elif command_input.startswith('SAVEPINNEDINIT'):
-        pinned_init_summaries = [entry['content'][19:] for entry in chat_history if entry['content'].startswith('Pinned Init summary')]
-        write_content_to_file("\n".join(pinned_init_summaries), "pinned_init_summaries.txt")
+        elif command_input.startswith('SAVEPINNEDINIT'):
+            pinned_init_summaries = [entry['content'][19:] for entry in chat_history if entry['content'].startswith('Pinned Init summary')]
+            write_content_to_file("\n".join(pinned_init_summaries), "pinned_init_summaries.txt")
 
-    elif command_input.startswith('SAVEPINNEDHANDOFF'):
-        pinned_handoff_contexts = [entry['content'][22:] for entry in chat_history if entry['content'].startswith('Pinned Handoff context')]
-        write_content_to_file("\n".join(pinned_handoff_contexts), "pinned_handoff_contexts.txt")
+        elif command_input.startswith('SAVEPINNEDHANDOFF'):
+            pinned_handoff_contexts = [entry['content'][22:] for entry in chat_history if entry['content'].startswith('Pinned Handoff context')]
+            write_content_to_file("\n".join(pinned_handoff_contexts), "pinned_handoff_contexts.txt")
 
-    elif command_input.startswith('SAVEEXEMPTIONS'):
-        exemptions = [entry['content'][10:] for entry in chat_history if entry['content'].startswith('Exemption')]
-        write_content_to_file("\n".join(exemptions), "exemptions.txt")
+        elif command_input.startswith('SAVEEXEMPTIONS'):
+            exemptions = [entry['content'][10:] for entry in chat_history if entry['content'].startswith('Exemption')]
+            write_content_to_file("\n".join(exemptions), "exemptions.txt")
 
-    elif command_input.startswith('SAVEPINNED'):
-        pinned_entries = [entry['content'] for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context')]
-        write_content_to_file("\n".join(pinned_entries), "pinned_entries.txt")
+        elif command_input.startswith('SAVEPINNED'):
+            pinned_entries = [entry['content'] for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context')]
+            write_content_to_file("\n".join(pinned_entries), "pinned_entries.txt")
 
-    elif command_input.startswith('SAVEALL'):
-        all_entries = [f"{entry['role']}: {entry['content']}" for entry in chat_history]
-        write_content_to_file("\n".join(all_entries), "all_entries.txt")
+        elif command_input.startswith('SAVEALL'):
+            all_entries = [f"{entry['role']}: {entry['content']}" for entry in chat_history]
+            write_content_to_file("\n".join(all_entries), "all_entries.txt")
 
-    elif command_input == 'HELP_VISIBILITY':
-        display_message("system", """
-        HIDE - Toggle the visibility of user text.
-        HIDE_AI - Toggle the visibility of AI responses.
-        HIDE_AI_COMMANDS - Toggle the visibility of commands given by the AI.
-        HIDE_USER_COMMANDS - Toggle the visibility of commands issued by the user.
+        elif command_input == 'HELP_VISIBILITY':
+            display_message("system", """
+            HIDE - Toggle the visibility of user text.
+            HIDE_AI - Toggle the visibility of AI responses.
+            HIDE_AI_COMMANDS - Toggle the visibility of commands given by the AI.
+            HIDE_USER_COMMANDS - Toggle the visibility of commands issued by the user.
     """)
 
-    elif command_input == 'HIDE':
-        show_user_text = not show_user_text
-        if show_user_text:
-            display_message("system", "User text will now be displayed.")
-        else:
-            display_message("system", "User text will now be hidden.")
+        elif command_input == 'HIDE':
+            show_user_text = not show_user_text
+            if show_user_text:
+                display_message("system", "User text will now be displayed.")
+            else:
+                display_message("system", "User text will now be hidden.")
 
-    elif command_input == 'HIDE_AI':
-        show_ai_text = not show_ai_text
-        if show_ai_text:
-            display_message("system", "AI text will now be displayed.")
-        else:
-            display_message("system", "AI text will now be hidden.")
+        elif command_input == 'HIDE_AI':
+            show_ai_text = not show_ai_text
+            if show_ai_text:
+                display_message("system", "AI text will now be displayed.")
+            else:
+                display_message("system", "AI text will now be hidden.")
 
-    elif command_input == 'HIDE_AI_COMMANDS':
-        hide_ai_commands = not hide_ai_commands
-        if hide_ai_commands:
-            display_message("system", "AI commands will now be hidden.")
-        else:
-            display_message("system", "AI commands will now be displayed.")
+        elif command_input == 'HIDE_AI_COMMANDS':
+            hide_ai_commands = not hide_ai_commands
+            if hide_ai_commands:
+                display_message("system", "AI commands will now be hidden.")
+            else:
+                display_message("system", "AI commands will now be displayed.")
 
-elif command_input == 'HIDE_USER_COMMANDS':
-    hide_user_commands = not hide_user_commands
-    if hide_user_commands:
-        display_message("system", "User commands will now be hidden.")
+    elif command_input == 'HIDE_USER_COMMANDS':
+        hide_user_commands = not hide_user_commands
+        if hide_user_commands:
+            display_message("system", "User commands will now be hidden.")
+        else:
+            display_message("system", "User commands will now be displayed.")
+
     else:
-        display_message("system", "User commands will now be displayed.")
-
-else:
     # If none of the commands match
     # Use the new display function for the AI's text
-    role = "assistant" if not is_user else "user"
-    if not (is_user and hide_user_commands) or (not is_user and hide_ai_commands):
-        display_message(role, command_input)
-        chat_history.append({"role": role, "content": command_input})
+        role = "assistant" if not is_user else "user"
+        if not (is_user and hide_user_commands) or (not is_user and hide_ai_commands):
+            display_message(role, command_input)
+            chat_history.append({"role": role, "content": command_input})
 
-    token_count = count_tokens_in_history(chat_history)
-    tokens_in_message = len(list(tokenizer.tokenize(command_input)))
-    token_counter += tokens_in_message
-    save_chat_history_to_file()
-    print(f"Current token count in chat history: {token_count}")
+        token_count = count_tokens_in_history(chat_history)
+        tokens_in_message = len(list(tokenizer.tokenize(command_input)))
+        token_counter += tokens_in_message
+        print(f"Current token count in chat history: {token_count}")
+        # Warning check: If token_counter is within 90% of the token_limit
+        if token_counter > 0.85 * token_limit and token_counter < token_limit:
+            print("Warning: Approaching token limit! Chat history will be saved.")
+
+        # Urgent check: If token_counter has reached or exceeded token_limit
+        elif token_counter >= token_limit:
+            print("Token limit reached! Chat history saved and non-pinned messages will be cleared.")
+            save_chat_history_to_file()
+            # Function to clear non-pinned messages
+            clear_percentage_except_pinned_and_exempt("CLEAR%70")
 
 
 
@@ -401,6 +440,108 @@ def clear_chat_history(percentage):
         chat_history = non_exempted_entries[-(num_chats_to_keep-len(exempted_and_pinned_entries)):] + exempted_and_pinned_entries
 
     print(f"Chat history cleared, {int(percentage*100)}% chats are removed, only most recent {num_chats_to_keep} entries, pinned summaries, and exemptions remain.")
+
+
+
+def display_message(role, message, is_command=False):
+    global show_user_text, show_ai_text, hide_ai_commands, hide_user_commands
+    
+    if role == 'user':
+        if not show_user_text: return
+        if hide_user_commands and is_command: return
+    elif role == 'assistant':
+        if not show_ai_text: return
+        if hide_ai_commands and is_command: return
+
+    print(f"{role.capitalize()} says: {message}")
+
+def save_chat_history_to_file():
+    """
+    Save the current chat history to a file.
+    The filename will be formatted as 'chat_history_PrimaryAIName_date_time.txt',
+    where 'PrimaryAIName' is replaced with the name of the primary AI,
+    'date' is replaced with the current date, and 'time' is replaced with the current time.
+    """
+    # Get the current date and time
+    now = datetime.datetime.now()
+    
+    # Format the date and time as strings
+    date_str = now.strftime('%Y-%m-%d')
+    time_str = now.strftime('%H-%M-%S')
+    
+    # Create the filename
+    filename = f"chat_history_{primary_ai_name}_{date_str}_{time_str}.txt"
+    
+    # Write the chat history to the file
+    with open(filename, 'w') as file:
+        for entry in chat_history:
+            role = entry['role']
+            content = entry['content']
+            file.write(f"{role}: {content}\n")
+                
+    print(f"Chat history saved to {filename}")
+
+def check_and_save_chat_history():
+    """
+    Check the token count in the chat history, and if it reaches the defined limit,
+    save the chat history to a file.
+    """
+    global token_counter
+
+    # Check if the token counter exceeds the limit
+    if token_counter > token_limit:
+        print("Token limit reached. Saving chat history to file...")
+        save_chat_history_to_file()  # Save the chat history to a text file
+        token_counter = 0  # Reset the token counter
+
+
+def clear_percentage_except_pinned_and_exempt(command: str):
+    try:
+        percentage_to_clear = float(command[6:].strip()) / 100
+        if 0 <= percentage_to_clear <= 1:
+            
+            # Separate out pinned/init/exempted entries and others
+            pinned_and_exempted_entries = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context') or entry['content'].startswith('Exemption')]
+            other_entries = [entry for entry in chat_history if entry not in pinned_and_exempted_entries]
+
+            # Calculate the number of entries to keep
+            num_to_keep = int(len(other_entries) * (1 - percentage_to_clear))
+            kept_entries = other_entries[:num_to_keep]
+
+            # Merge the kept entries with the pinned/init/exempted ones
+            chat_history[:] = pinned_and_exempted_entries + kept_entries
+
+            print(f"Cleared {percentage_to_clear*100}% of chat history excluding pinned and exempted entries.")
+        else:
+            print("Invalid percentage. Please enter a number between 0 and 100.")
+    except ValueError:
+        print("Invalid command format. Expected format is 'CLEAR%{number}'.")
+
+
+def add_pinned_init_summary(init_summary: str):
+    chat_history.append({'role': 'user', 'content': f'Pinned Init summary: {init_summary}'})
+    print(f"Pinned Init summary: {init_summary}")
+
+def retrieve_and_add_handoff(handoff_filename: str):
+    handoff_filepath = f"{logging_folder}/{handoff_filename}"
+    
+    if not os.path.exists(handoff_filepath):
+        print(f"No such file exists: {handoff_filepath}")
+        return
+
+    with open(handoff_filepath, "r") as file:
+        handoff_summary = file.read().strip()
+
+    if any(entry['content'].startswith(f'Pinned Handoff context: {handoff_summary}') for entry in chat_history):
+        print("Handoff summary already in chat history.")
+        return
+
+    chat_history.append({'role': 'assistant', 'content': f'Pinned Handoff context: {handoff_summary}'})
+    print(f"Pinned Handoff context from file: {handoff_summary}")
+
+def clear_non_pinned_entries():
+    chat_history[:] = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context') or entry['content'].startswith('Exemption')]
+    print("Chat history cleared, only pinned summaries and exemptions remain.")
 
 
 
