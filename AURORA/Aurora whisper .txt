@@ -34,6 +34,7 @@ tokenizer = Tokenizer()
 token_limit = 15000  # Set this to whatever limit you want
 token_counter = 0  # This will keep track of the tokens used so far
 character_name = "Aurora"
+API_KEY="API_KEY"
 
 # Additional global variables
 AUTO_PROMPT_INTERVAL = 10  # Auto-prompt every 30 seconds, but you can change this value
@@ -102,7 +103,7 @@ def send_prompt_to_chatgpt(prompt, image_path=None):
         messages.append({"role": "user", "content": {"image": image_data}})
     
     response = openai.ChatCompletion.create(
-        model="gpt-4",
+        model="gpt-4-32k",
         messages=messages,
         max_tokens=100000,
         n=1,
@@ -235,6 +236,11 @@ def handle_commands(command_input, is_user=True):
                     pyautogui.rightClick(int(x), int(y))
                 print(f"Executed cursor command: {cmd} at ({x}, {y})")
 
+        elif command_input.startswith("PIN"):
+            exemption_context = command_input[4:].strip()
+            chat_history.append({'role': 'assistant', 'content': f'Exemption: {exemption_context}'})
+            print(f"Exemption pinned: {exemption_context}")
+
         elif command_input.startswith("HANDOFF"):
             handoff_summary = command_input[7:].strip() 
             buffer.append(handoff_summary)
@@ -247,10 +253,7 @@ def handle_commands(command_input, is_user=True):
             print("Handoff summary saved.")
             restart_chatgpt_instance()
 
-        elif command_input.startswith("PIN"):
-            exemption_context = command_input[4:].strip()
-            chat_history.append({'role': 'assistant', 'content': f'Exemption: {exemption_context}'})
-            print(f"Exemption pinned: {exemption_context}")
+
 
         elif command_input.startswith("TOGGLE_AUTO_PROMPT"):
             global enable_auto_prompt
@@ -443,15 +446,26 @@ def clear_chat_history(percentage):
 
 
 
-def display_message(role, message, is_command=False):
+def display_message(role, content):
     global show_user_text, show_ai_text, hide_ai_commands, hide_user_commands
-    
-    if role == 'user':
-        if not show_user_text: return
-        if hide_user_commands and is_command: return
-    elif role == 'assistant':
-        if not show_ai_text: return
-        if hide_ai_commands and is_command: return
+
+    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    formatted_content = f"{timestamp} - {content}"
+
+    # Check if it's a command for conditional visibility
+    is_command = content.startswith(POWER_WORD)
+
+    if role == "user":
+        if not show_user_text or (hide_user_commands and is_command):
+            return
+        print(f"User: {formatted_content}")
+    elif role == "assistant":
+        if not show_ai_text or (hide_ai_commands and is_command):
+            return
+        print(f"Assistant: {formatted_content}")
+
+    chat_history.append({"role": role, "content": formatted_content})
+
 
     print(f"{role.capitalize()} says: {message}")
 
@@ -698,11 +712,7 @@ if os.path.exists(handoff_file):
 # Global variable to control the main loop
 running = True
 
-# Set up OpenAI API client
-openai.api_key = "API KEY HERE"
 
-# Initialize ChatGPT API endpoint
-endpoint_url = "https://api.openai.com/v1/chat/completions/gpt-4"
 
 # Time interval between screenshots (in seconds)
 time_interval = 25.5
