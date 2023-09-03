@@ -92,11 +92,11 @@ def send_prompt_to_chatgpt(prompt, image_path=None):
     # Append the timestamp to the prompt
     prompt_with_timestamp = f"{prompt} ~|~|~ {datetime.datetime.now()}"
     
-    messages = [{"role": "system", "content": "You are a helpful assistant."}, {"role": "user", "content": prompt_with_timestamp}]
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant."}, 
+        {"role": "user", "content": prompt_with_timestamp}
+    ]
     
-    # append user message to chat history
-    .append({"role": "user", "content": prompt_with_timestamp})
-
     if image_path is not None:
         with open(image_path, "rb") as image_file:
             image_data = image_file.read()
@@ -109,26 +109,22 @@ def send_prompt_to_chatgpt(prompt, image_path=None):
         n=1,
         temperature=0.5,
     )
-
-    # append ChatGPT's response to chat history
-    .append({"role": "assistant", "content": response.choices[0].message['content'].strip()})
     
-    # Display the user's text if show_user_text is True
-    if show_user_text:
-        display_message("user", prompt)
+    # Display the user's text
+    display_message("user", prompt)
 
-    # Display AI's response based on your visibility settings
-    display_message("assistant", response.choices[0].message['content'].strip())
+    # Display AI's response
+    ai_response = response.choices[0].message['content'].strip()
+    display_message("assistant", ai_response)
     
-    # Count tokens and display
+    # Count tokens and display if needed
     token_count_message = count_tokens_in_history()
     current_token_count = int(token_count_message.split()[0])
-    
-    # Count tokens and check threshold
     if threshold_check(current_token_count, CONTEXT_LENGTH, 75):
         display_message("system", f"Current token count: {current_token_count} out of {CONTEXT_LENGTH} available")
     
-    return response.choices[0].message['content'].strip()
+    return ai_response
+
 
 
 # Define process_chatgpt_response function before calling it
@@ -195,7 +191,6 @@ def handle_commands(command_input, is_user=True):
     
     if is_command(command_input):
         command_input = command_input.replace(POWER_WORD, "").strip()
-        command_input = f"{command_input}~|~|~{datetime.datetime.now()}"
 
         if command_input.startswith('/*'):
             disable_commands = True
@@ -204,24 +199,21 @@ def handle_commands(command_input, is_user=True):
             disable_commands = False
             return
         if disable_commands:
-            print("Command processing is currently disabled.")
+            display_message("system", "Command processing is currently disabled.")
             return 
 
     # For each possible command, check if it's present in command_input
     # Then execute its corresponding action
-
         if command_input.startswith("VKB_CMD:"):
-        # Strip off the "VKB_CMD:" prefix and split using the delimiter
-            command_section, timestamp = command_input[len("VKB_CMD:"):].split("~|~|~")
-            commands = command_section.strip().split(';')  # Split multiple commands
+            command_section = command_input[len("VKB_CMD:"):].strip()
+            commands = command_section.split(';')  # Split multiple commands
             for command in commands:
                 command = command.strip()
                 if len(command) == 1:
                     keyboard.press_and_release(command)
-                    print(f"Executed command: {command} at {timestamp}")
                 else:
                     pyautogui.write(command)
-                    print(f"Typed string: {command} at {timestamp}")
+                display_message("system", f"Executed command: {command}")
 
         elif command_input.startswith("CURSORCMD:"):
             command_section = command_input[10:].strip()
@@ -234,12 +226,11 @@ def handle_commands(command_input, is_user=True):
                     pyautogui.moveTo(int(x), int(y))
                 elif cmd == "right_click":
                     pyautogui.rightClick(int(x), int(y))
-                print(f"Executed cursor command: {cmd} at ({x}, {y})")
+                display_message("system", f"Executed cursor command: {cmd} at ({x}, {y})")
 
         elif command_input.startswith("PIN"):
             exemption_context = command_input[4:].strip()
-            chat_history.append({'role': 'assistant', 'content': f'Exemption: {exemption_context}'})
-            print(f"Exemption pinned: {exemption_context}")
+            display_message("assistant", f'Exemption: {exemption_context}')
 
         elif command_input.startswith("HANDOFF"):
             handoff_summary = command_input[7:].strip() 
@@ -406,7 +397,34 @@ def handle_commands(command_input, is_user=True):
             clear_percentage_except_pinned_and_exempt("CLEAR%70")
 
 
+def display_message(role, content):
+    global show_user_text, show_ai_text, hide_ai_commands, hide_user_commands
 
+    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    formatted_content = f"{timestamp} - {content}"
+
+    # Check if it's a command for conditional visibility
+    is_command = content.startswith(POWER_WORD)
+
+    if role == "user":
+        if not show_user_text or (hide_user_commands and is_command):
+            return
+        print(f"User: {formatted_content}")
+    elif role == "assistant":
+        if not show_ai_text or (hide_ai_commands and is_command):
+            return
+        print(f"Assistant: {formatted_content}")
+
+    chat_history.append({"role": role, "content": formatted_content})
+
+
+    print(f"{role.capitalize()} says: {message}")
+
+
+def count_tokens_in_history(chat_history):
+    text = " ".join([entry['content'] for entry in chat_history])
+    tokens_used = len(list(tokenizer.tokenize(text)))
+    return f"{tokens_used} out of {CONTEXT_LENGTH} available"
 
 def write_content_to_file(content, file_name):
         with open(file_name, "w") as f:
@@ -446,28 +464,6 @@ def clear_chat_history(percentage):
 
 
 
-def display_message(role, content):
-    global show_user_text, show_ai_text, hide_ai_commands, hide_user_commands
-
-    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    formatted_content = f"{timestamp} - {content}"
-
-    # Check if it's a command for conditional visibility
-    is_command = content.startswith(POWER_WORD)
-
-    if role == "user":
-        if not show_user_text or (hide_user_commands and is_command):
-            return
-        print(f"User: {formatted_content}")
-    elif role == "assistant":
-        if not show_ai_text or (hide_ai_commands and is_command):
-            return
-        print(f"Assistant: {formatted_content}")
-
-    chat_history.append({"role": role, "content": formatted_content})
-
-
-    print(f"{role.capitalize()} says: {message}")
 
 def save_chat_history_to_file():
     """
