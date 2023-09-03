@@ -204,55 +204,40 @@ def handle_commands(command_input, is_user=True):
 
     # For each possible command, check if it's present in command_input
     # Then execute its corresponding action
-        if command_input.startswith("VKB_CMD:"):
-            command_section = command_input[len("VKB_CMD:"):].strip()
-            commands = command_section.split(';')  # Split multiple commands
-            for command in commands:
-                command = command.strip()
-                if len(command) == 1:
-                    keyboard.press_and_release(command)
-                else:
-                    pyautogui.write(command)
-                display_message("system", f"Executed command: {command}")
+  # Use a dictionary to map command strings to their respective function handlers
+    command_map = {
+    "VKB_CMD:": handle_VKB_CMD,
+    "CURSORCMD:": handle_CURSORCMD,
+    "PIN": handle_PIN,
+    "HANDOFF": handle_HANDOFF,
+    "TOGGLE_AUTO_PROMPT": handle_TOGGLE_AUTO_PROMPT,
+    "SHUTDOWN_EXIT_INSTANCE": shutdown_chatgpt_instance_and_exit,
+    "TERMINATE_INSTANCE": terminate_instance,
+    "RECALL": recall_previous_summary,
+    "INIT": handle_VKB_CMD,
+    "RETRIEVE_HANDOFF": handle_CURSORCMD,
+    "CLEAR_NON_PINNED": handle_PIN,
+    "CLEAR%": handle_HANDOFF,
+    "CLEARALL": handle_TOGGLE_AUTO_PROMPT,
+    "SAVEPINNEDINIT": shutdown_chatgpt_instance_and_exit,
+    "SAVEPINNEDHANDOFF": terminate_instance,
+    "SAVEEXEMPTIONS": recall_previous_summary,
+    "SAVEALL": handle_VKB_CMD,
+    "HELP_VISIBILITY:": handle_CURSORCMD,
+    "HIDE": handle_PIN,
+    "HIDE_AI": handle_HANDOFF,
+    "HIDE_AI_COMMANDS": handle_PIN,
+    "HIDE_USER_COMMANDS": handle_HANDOFF
+    }
 
-        elif command_input.startswith("CURSORCMD:"):
-            command_section = command_input[10:].strip()
-            commands = command_section.split(';')  # Split multiple commands
-            for command in commands:
-                cmd, x, y = command.strip().split(',')
-                if cmd == "click":
-                    pyautogui.click(int(x), int(y))
-                elif cmd == "move":
-                    pyautogui.moveTo(int(x), int(y))
-                elif cmd == "right_click":
-                    pyautogui.rightClick(int(x), int(y))
-                display_message("system", f"Executed cursor command: {cmd} at ({x}, {y})")
-
-        elif command_input.startswith("PIN"):
-            exemption_context = command_input[4:].strip()
-            display_message("assistant", f'Exemption: {exemption_context}')
-
-        elif command_input.startswith("HANDOFF"):
-            handoff_summary = command_input[7:].strip() 
-            buffer.append(handoff_summary)
-            timestamp = int(time.time())
-            with open(f"{logging_folder}/handoff_{timestamp}.txt", "w") as log_file:
-                log_file.write(handoff_summary)
-            chat_history.append({'role': 'assistant', 'content': f'Pinned Handoff context: {handoff_summary}'})
-            all_entries = [f"{entry['role']}: {entry['content']}" for entry in chat_history]
-            write_content_to_file("\n".join(all_entries), "all_entries.txt")
-            print("Handoff summary saved.")
-            restart_chatgpt_instance()
-
-
-
-        elif command_input.startswith("TOGGLE_AUTO_PROMPT"):
-            global enable_auto_prompt
-            enable_auto_prompt = not enable_auto_prompt
-            if enable_auto_prompt:
-                display_message("system", "Auto-prompting has been enabled.")
-        else:
-                display_message("system", "Auto-prompting has been disabled."
+    # Loop through the command map and execute the function if the command_input matches
+    for command_str, func in command_map.items():
+        if command_input.startswith(command_str):
+            try:
+                func(command_input)
+            except TypeError:
+                func()
+            return
 
         elif command_input.startswith("SHUTDOWN_EXIT_INSTANCE"):
             shutdown_chatgpt_instance_and_exit()
@@ -430,6 +415,55 @@ def write_content_to_file(content, file_name):
         with open(file_name, "w") as f:
             f.write(content)
         print(f"Content saved to {file_name}")
+
+# Extracted functions for each command
+def handle_VKB_CMD(command_input):
+    command_section = command_input[len("VKB_CMD:"):].strip()
+    commands = command_section.split(';')  # Split multiple commands
+    for command in commands:
+        command = command.strip()
+        if len(command) == 1:
+            keyboard.press_and_release(command)
+        else:
+            pyautogui.write(command)
+        display_message("system", f"Executed command: {command}")
+
+def handle_CURSORCMD(command_input):
+    command_section = command_input[10:].strip()
+    commands = command_section.split(';')  # Split multiple commands
+    for command in commands:
+        cmd, x, y = command.strip().split(',')
+        if cmd == "click":
+            pyautogui.click(int(x), int(y))
+        elif cmd == "move":
+            pyautogui.moveTo(int(x), int(y))
+        elif cmd == "right_click":
+            pyautogui.rightClick(int(x), int(y))
+        display_message("system", f"Executed cursor command: {cmd} at ({x}, {y})")
+
+def handle_PIN(command_input):
+    exemption_context = command_input[4:].strip()
+    display_message("assistant", f'Exemption: {exemption_context}')
+
+def handle_HANDOFF(command_input):
+    handoff_summary = command_input[7:].strip() 
+    buffer.append(handoff_summary)
+    timestamp = int(time.time())
+    with open(f"{logging_folder}/handoff_{timestamp}.txt", "w") as log_file:
+        log_file.write(handoff_summary)
+    chat_history.append({'role': 'assistant', 'content': f'Pinned Handoff context: {handoff_summary}'})
+    all_entries = [f"{entry['role']}: {entry['content']}" for entry in chat_history]
+    write_content_to_file("\n".join(all_entries), "all_entries.txt")
+    print("Handoff summary saved.")
+    restart_chatgpt_instance()
+
+def handle_TOGGLE_AUTO_PROMPT():
+    global enable_auto_prompt
+    enable_auto_prompt = not enable_auto_prompt
+    if enable_auto_prompt:
+        display_message("system", "Auto-prompting has been enabled.")
+    else:
+        display_message("system", "Auto-prompting has been disabled.")
 
 def initiate_and_handoff():
     response_text = send_prompt_to_chatgpt(init_prompt)
