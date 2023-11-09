@@ -452,74 +452,178 @@ def handle_commands(command_input, is_user=True):
             for command in commands:
                 command = command.strip()
                 try:
-                    if command.startswith("hold_"):
-                        key, duration = command[5:].split(',')
-                        keyboard.press(key)  # Hold down the key
-                        pyautogui.sleep(float(duration))  # Wait for the specified duration
-                        keyboard.release(key)  # Release the key
-                    elif '+' in command:
-                        pyautogui.hotkey(*command.split('+'))
-                    elif len(command) == 1:
-                        keyboard.press_and_release(command)
+                    if '(' in command and ')' in command:  # Corrected to check in `command`
+                        cmd, args_part = command.split('(', 1)
+                        args_part = args_part.rstrip(')')
+                        args = args_part.split(',') if args_part else []
+                        cmd = cmd.strip().lower()  # Normalize the command
                     else:
-                        pyautogui.write(command)
-                    display_message("system", f"Executed command: {command}")
-                    update_chat_history('system', command_input)  # Assuming this is where you want to log the command
-                    #chat_history.append({"role": "system", "content": command_input, "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
+                        args = []
+                        cmd = command.lower()  # Command without arguments
+
+                    if cmd == "press":
+                         key = args[0]
+                         pyautogui.press(key)
+                         display_message("system", f"Key pressed: {key}")
+
+                
+                    elif cmd == "release":
+                        key = args[0]
+                        if key.lower() == "plus":  # Checking for the string "plus"
+                            pyautogui.keyUp('+')   # Releasing the plus key
+                            display_message("system", f"Plus key released.")
+                        else:
+                            pyautogui.keyUp(key)
+                            display_message("system", f"Key released: {key}")
+
+                    elif cmd == "hotkey":
+                        pyautogui.hotkey(*args)
+                        display_message("system", f"Hotkey executed: {'+'.join(args)}")
+
+                    elif cmd == "type":
+                        text = args[0]
+                        pyautogui.write(text)
+                        display_message("system", f"Text typed: {text}")
+            
+                    elif cmd == "hold":
+                        key = args[0]
+                        duration = float(args[1]) if len(args) > 1 else None
+                        
+                        # Special handling for the "plus" key
+                        if key.lower() == "plus":
+                            pyautogui.keyDown('+')
+                            if duration:
+                                pyautogui.sleep(duration)
+                                pyautogui.keyUp('+')
+                                display_message("system", f"Plus key held for {duration} seconds.")
+                            else:
+                                display_message("system", f"Plus key held down, waiting for release command.")
+                        # Default handling for all other keys
+                        else:
+                            pyautogui.keyDown(key)
+                            if duration:
+                                pyautogui.sleep(duration)
+                                pyautogui.keyUp(key)
+                                display_message("system", f"Key held for {duration} seconds: {key}")
+                            else:
+                                display_message("system", f"Key {key} held down, waiting for release command.")
+                    
+                    elif cmd == "press" and args[0] == "plus":
+                        # Special case for the plus key, if "plus" is the argument after "press"
+                        pyautogui.press('+')
+                        display_message("system", f"Plus key pressed.")
+
+
+                    #elif cmd == "hold":
+                    #    key = args[0]
+                    #    duration = float(args[1]) if len(args) > 1 else None
+                    #
+                    #    # A dictionary mapping special key strings to their pyautogui functions
+                    #    special_keys = {
+                    #        "plus": '+',
+                    #        "enter": 'enter',
+                    #        "shift": 'shift',
+                    #        "ctrl": 'ctrl',
+                    #        # Add other special keys here as necessary
+                    #    }
+                    #
+                    #    # Check if the key is one of the special keys
+                    #    if key.lower() in special_keys:
+                    #        pyautogui.keyDown(special_keys[key.lower()])  # Hold down the special key
+                    #        if duration:
+                    #            pyautogui.sleep(duration)
+                    #            pyautogui.keyUp(special_keys[key.lower()])  # Release the special key after the duration
+                    #            display_message("system", f"{key.capitalize()} key held for {duration} seconds.")
+                    #        else:
+                    #            display_message("system", f"{key.capitalize()} key held down, waiting for release command.")
+                    #    else:
+                    #        pyautogui.keyDown(key)  # Hold down the regular key
+                    #        if duration:
+                    #            pyautogui.sleep(duration)
+                    #            pyautogui.keyUp(key)  # Release the regular key after the duration
+                    #            display_message("system", f"{key.capitalize()} key held for {duration} seconds.")
+                    #        else:
+                    #            display_message("system", f"{key.capitalize()} key held down, waiting for release command.")
+                    #    
+                    #
+
+                    # Removed the repeated logic to prevent overlap and confusion
+
+                    update_chat_history('system', command_input)  # Log the command
                 except Exception as e:
                     display_message("system", f"Failed to execute command: {command}. Error: {str(e)}.")
+
 
         if command_input.startswith("CURSORCMD:"):
             command_section = command_input[10:].strip()
             commands = command_section.split(';')
             for command in commands:
-                args = command.strip().split(',')
-                if len(args) == 1:
-                    args = args[0].split(' ')
+                command = command.strip()
                 try:
-                    if len(args) == 2:
+                    if '(' in command and ')' in command:
+                        cmd, args_part = command.split('(', 1)
+                        args_part = args_part.rstrip(')')
+                        args = args_part.split(',') if args_part else []
+                        cmd = cmd.strip().lower()  # Normalize the command
+                    else:
+                        args = []
+                        cmd = command.lower()  # Command without arguments
+
+                    if cmd == "click":
+                        count = int(args[0]) if args else 1  # Default to 1 click if no arguments
+                        for _ in range(count):
+                            pyautogui.click()
+                        display_message("system", f"Executed {count} click(s)")
+
+                    elif cmd == "hold_click":
+                        duration = float(args[0]) if args else 1.0  # Default to 1 second if no arguments
+                        pyautogui.mouseDown()
+                        pyautogui.sleep(duration)
+                        pyautogui.mouseUp()
+                        display_message("system", f"Held click for {duration} seconds")
+          
+                    elif cmd == "drag" and len(args) == 3:
+                         x1, y1, duration = map(int, args)
+                         pyautogui.dragTo(x1, y1, duration)
+                         display_message("system", f"Dragged for {duration} seconds to ({x1}, {y1})")
+
+                    elif cmd == "screenshot" and len(args) == 2:
+                        x, y = map(int, args)
+                        screenshot = pyautogui.screenshot()
+                        screenshot.save(f'screenshot_{x}_{y}.png')
+                        display_message("system", f"Screenshot saved as screenshot_{x}_{y}.png")
+
+                    elif len(args) == 2:
                         x, y = map(int, args)
                         pyautogui.moveTo(x, y)
                         display_message("system", f"Executed cursor move command to ({x}, {y})")
-                        #chat_history.append({"role": "system", "content": command_input, "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
+
                     elif len(args) == 3:
                         cmd, x, y = args
                         x, y = map(int, [x, y])
                         if cmd in ["double_click", "doubleclick"]:
-                            pyautogui.click(x, y, clicks=2)
+                            pyautogui.doubleClick(x, y)
                         elif cmd in ["right_click", "rightclick"]:
                             pyautogui.rightClick(x, y)
-                        elif cmd == "screenshot":
-                            screenshot(region=(x, y, 100, 100), path=f'screenshot_{x}_{y}.png')
                         display_message("system", f"Executed cursor command: {cmd} at ({x}, {y})")
-                        update_chat_history('system', command_input)  # Assuming this is where you want to log the command
-                        #chat_history.append({"role": "system", "content": command_input, "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
-                    elif len(args) == 4:
-                        cmd, x1, y1, duration = args
-                        if cmd == "drag":
-                            x1, y1, duration = map(int, [x1, y1, duration])
-                            pyautogui.moveTo(x1, y1)
-                            pyautogui.mouseDown()
-                            pyautogui.sleep(duration)
-                            pyautogui.mouseUp()
+
                     elif command.startswith("scroll"):
                         direction_units = command.split('_')[1:]
                         direction, units = '_'.join(direction_units[:-1]), direction_units[-1]
                         units = int(units)
-                        if direction in ["up", "down"]:
-                            if direction == "up":
-                                pyautogui.scroll(units)
-                            elif direction == "down":
-                                pyautogui.scroll(-units)
+                        if direction == "up":
+                            pyautogui.scroll(units)
+                        elif direction == "down":
+                            pyautogui.scroll(-units)
                         display_message("system", f"Executed scroll command: {command}")
-                        update_chat_history('system', command_input)  # Assuming this is where you want to log the command
-                        #chat_history.append({"role": "system", "content": command_input, "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
 
                     else:
                         raise ValueError("Invalid command format")
-                except Exception as e:
-                    display_message("system", f"Failed to execute command: {command}. Error: {str(e)}. Valid format: command(x,y). For multiple commands: command(x,y); command2(x,y)")
 
+                    update_chat_history('system', command_input)  # Log the command
+                except Exception as e:
+                    display_message("system", f"Failed to execute command: {command}. Error: {str(e)}.")
+      
         if command_input.startswith('toggle_always'):
             params = command_input.split()[1:]
             if len(params) == 2:
@@ -1428,7 +1532,7 @@ def take_screenshot():
         screenshot_file_path = f"{logging_folder}/{timestamp}.png"
         screenshot.save(screenshot_file_path)
         # Now, we send the prompt and include the screenshot file path
-        send_prompt_to_chatgpt("Here's a screenshot of my entire screen.", screenshot_file_path)
+        send_prompt_to_chatgpt("Here's a screenshot of my entire screen. Lets play Pokemon :3 We will play with individual button presses. Please simply reply with one or a short series set of individual button presses in response to each image. images will only update after a response is obtain from here. Display is 1920 X 1080 Landscape. ie click on folder/app called at mouse position x, y left click right click, move mouse x,y select open keys in VBA emulator are Up: Up Arrow Please pretend like there is a parser listening for key commands and mouse commands the format from handle_commands of VKB_CMD:hold_shift,1.5  then CURSORCMD:moveTo(100,200); rightClick(100,200); click(100,200)", screenshot_file_path)
 
         #auto_prompt_response = send_prompt_to_chatgpt("Here's a screenshot of my entire screen.", screenshot_file_path)
         #send_prompt_to_chatgpt(auto_prompt_response)
