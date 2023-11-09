@@ -18,7 +18,7 @@ import requests
 import schedule
 import sounddevice as sd
 import tiktoken
-from PIL import Image, ImageGrab
+from PIL import Image, ImageGrab, ImageDraw
 import random
 from threading import Lock
 from scipy.io.wavfile import write
@@ -60,9 +60,17 @@ CHECK_UMSGS_DECAY = True  # Initially set to True to enable decay checks for uni
 CHECK_IMSGS_DECAY = True  # Initially set to True to enable decay checks for important messages
 Always_ = False
 hide_input = None
+# Global variable to store the last executed command
+global last_command
+last_command = None
+
+last_key = None  # Initialize the global variable
+mouse_position = None
 
 IMGS_DECAY = 200 # Setting the default decay time to 3 minutes for important messages
 UMSGS_DECAY = 2 # Setting the default decay time to 3 minutes for unimportant messages
+# Time interval between screenshots (in seconds)
+time_interval = 44.5
 
 
 #script_directory = os.path.dirname(os.path.abspath(__file__))
@@ -98,8 +106,6 @@ AUTO_PROMPT_INTERVAL = 9  # Auto-prompt every 30 seconds, but you can change thi
 enable_auto_prompt = False
 auto_prompt_message = "Auto Prompt."  # Default auto message 
 
-# Time interval between screenshots (in seconds)
-time_interval = 24.5
 
 # Function to run the audio stream
 def run_audio_stream():
@@ -413,6 +419,8 @@ def handle_commands(command_input, is_user=True):
     global ADD_IMSGS_TO_HISTORY
     global Always_
     global hide_input
+        # Assuming `command_input` is the full command line input
+    global last_command  # Use the global variable
     if command_input is None:
        print("Command input is None, skipping command handling.")
        return   
@@ -420,7 +428,7 @@ def handle_commands(command_input, is_user=True):
         if is_command(command_input):
             if command_input is not None:    
                 command_input = command_input.replace(POWER_WORD, "").strip()
-
+                last_command = command_input  # Update the last_command to the current command
         if command_input.startswith('/*'):
             disable_commands = True
             return
@@ -456,6 +464,7 @@ def handle_commands(command_input, is_user=True):
                     else:
                         pyautogui.write(command)
                     display_message("system", f"Executed command: {command}")
+                    update_chat_history('system', command_input)  # Assuming this is where you want to log the command
                     #chat_history.append({"role": "system", "content": command_input, "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
                 except Exception as e:
                     display_message("system", f"Failed to execute command: {command}. Error: {str(e)}.")
@@ -483,6 +492,7 @@ def handle_commands(command_input, is_user=True):
                         elif cmd == "screenshot":
                             screenshot(region=(x, y, 100, 100), path=f'screenshot_{x}_{y}.png')
                         display_message("system", f"Executed cursor command: {cmd} at ({x}, {y})")
+                        update_chat_history('system', command_input)  # Assuming this is where you want to log the command
                         #chat_history.append({"role": "system", "content": command_input, "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
                     elif len(args) == 4:
                         cmd, x1, y1, duration = args
@@ -502,6 +512,7 @@ def handle_commands(command_input, is_user=True):
                             elif direction == "down":
                                 pyautogui.scroll(-units)
                         display_message("system", f"Executed scroll command: {command}")
+                        update_chat_history('system', command_input)  # Assuming this is where you want to log the command
                         #chat_history.append({"role": "system", "content": command_input, "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
 
                     else:
@@ -526,11 +537,13 @@ def handle_commands(command_input, is_user=True):
             init_summary = command_input[5:]
             update_chat_history('user', f'Pinned Init summary: {init_summary}')
             print(f"Pinned Init summary: {init_summary}")
+            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
 
         if command_input.startswith("PIN"):
             exemption_context = command_input[4:].strip()
             display_message("assistant", f'Exemption: {exemption_context}', include_command=True)
             update_chat_history('assistant', f'Exemption: {exemption_context}')
+            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
         
         if command_input.startswith('RETRIEVE_HANDOFF'):
             handoff_filename = command_input.split('_')[2].strip()
@@ -577,6 +590,7 @@ def handle_commands(command_input, is_user=True):
 
         elif command_input.startswith("RECALL"):
             recall_previous_summary(character_name)
+            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
 
 
         elif command_input.lower() in ("clear_nopin%"):
@@ -584,6 +598,7 @@ def handle_commands(command_input, is_user=True):
                 percentage_to_clear = float(command_input[12:].strip()) / 100
                 if 0 <= percentage_to_clear <= 1:
                     clear_chat_history_except_pinned(percentage_to_clear)
+                    update_chat_history('system', command_input)  # Assuming this is where you want to log the command
                 else:
                     print("Invalid percentage. Please enter a number between 0 and 100.")
             except ValueError:
@@ -605,6 +620,7 @@ def handle_commands(command_input, is_user=True):
                 percentage_to_clear = float(command_input[6:].strip()) / 100
                 if 0 <= percentage_to_clear <= 1:
                     clear_chat_history(percentage_to_clear)
+                    update_chat_history('system', command_input)  # Assuming this is where you want to log the command
                 else:
                     print("Invalid percentage. Please enter a number between 0 and 100.")
             except ValueError:
@@ -614,16 +630,18 @@ def handle_commands(command_input, is_user=True):
         # Keep only the Pinned Init summary, Pinned Handoff context, and Pinned Messages w exemptions
             chat_history = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context')]
             print("Chat history cleared, only pinned summaries remain.")
-
+            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
         elif command_input.lower() in ("CLEAR INIT"):
             # Clears the Init summary
             chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Init summary')]
             print("Chat history cleared, Init summaries removed.") 
+            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
 
         elif command_input.lower() in ("CLEAR PIN"):
             # Clears the Init summary
             chat_history = [entry for entry in chat_history if not entry['content'].startswith('Exemption')]
             print("Chat history cleared, Init summaries removed.") 
+            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
 
         elif command_input.lower() in ("CLEAR HANDOFF"):
             # Clears the Init summary
@@ -660,6 +678,7 @@ def handle_commands(command_input, is_user=True):
                         
                     if found:
                         print(f"Message with timestamp {timestamp} edited successfully!")
+                        update_chat_history('system', command_input)  # Assuming this is where you want to log the command
                     else:
                         print(f"No message found with timestamp {timestamp}.")
                 except ValueError:
@@ -683,6 +702,7 @@ def handle_commands(command_input, is_user=True):
 
                 chat_history = [msg for msg in chat_history if msg not in messages_to_remove]
                 print(f"Removed {len(messages_to_remove)} messages from the chat history.")
+                update_chat_history('system', command_input)  # Assuming this is where you want to log the command
             except Exception as e:
                 print(f"Error processing the REMOVE_MSGS command: {e}")
 
@@ -691,6 +711,7 @@ def handle_commands(command_input, is_user=True):
             timestamp = command_input[11:].strip()
             chat_history = [entry for entry in chat_history if entry['timestamp'] != timestamp]
             print(f"Message with timestamp {timestamp} deleted successfully!")
+            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
 
         
 
@@ -699,24 +720,28 @@ def handle_commands(command_input, is_user=True):
         elif command_input.startswith('SAVEPINNEDINIT'):
             pinned_init_summaries = [entry['content'][19:] for entry in chat_history if entry['content'].startswith('Pinned Init summary')]
             write_content_to_file("\n".join(pinned_init_summaries), "pinned_init_summaries.txt")
+            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
 
         elif command_input.startswith('SAVEPINNEDHANDOFF'):
             pinned_handoff_contexts = [entry['content'][22:] for entry in chat_history if entry['content'].startswith('Pinned Handoff context')]
             write_content_to_file("\n".join(pinned_handoff_contexts), "pinned_handoff_contexts.txt")
+            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
 
         elif command_input.startswith('SAVEEXEMPTIONS'):
             exemptions = [entry['content'][10:] for entry in chat_history if entry['content'].startswith('Exemption')]
             write_content_to_file("\n".join(exemptions), "exemptions.txt")
+            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
 
         elif command_input.lower().startswith('SAVE PINS'):
             pinned_entries = [entry['content'] for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Exemption') or entry['content'].startswith('Pinned Handoff context')]
             write_content_to_file("\n".join(pinned_entries), "pinned_entries.txt")
+            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
 
 
         if command_input.lower().startswith('SAVE ALL PINS'):
             all_entries = [f"{entry['role']}: {entry['content']}" for entry in chat_history]
             write_content_to_file("\n".join(all_entries), "all_entries.txt")
-
+            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
         elif command_input == 'HELP_VISIBILITY':
             display_message("system", """
             HIDE - Toggle the visibility of user text.
@@ -732,7 +757,7 @@ def handle_commands(command_input, is_user=True):
 
 
     """)
-
+            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
         if command_input  in ('HELP', '/HELP', '/?') or command_input.lower() in ('~help', '/help', '-h', '--help','/man', '-man','--man','-manual','--manual','/manual','-manual', '/info', '-info', '--info', '-?', '--?'):
             display_message("system", """
     Here is the list of available commands and their descriptions:
@@ -807,7 +832,7 @@ def handle_commands(command_input, is_user=True):
 
     
     """)
-
+            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
 
         elif command_input.lower() == 'hide user text':
             show_user_text = not show_user_text
@@ -928,6 +953,10 @@ def update_chat_history(role, content, token_count=None, image_path=None):
     global chat_history
     global enable_unimportant_messages
     global enable_important_messages
+    global mouse_position  # make sure to include this global if you want to use it in the function
+    global last_key  # make sure to include this global if you want to use it in the function
+    global last_command  # Use the global variable here
+
     global ADD_UMSGS_TO_HISTORY
     global ADD_IMSGS_TO_HISTORY
 
@@ -948,7 +977,10 @@ def update_chat_history(role, content, token_count=None, image_path=None):
     history_entry = {
         "timestamp": timestamp,
         "role": role,
-        "token_count": token_count
+        "token_count": token_count,
+        "last_key": last_key,  # Add this line to include the last key press
+        "mouse_position": mouse_position,  # Add this line to include the current mouse position
+        "last_command": last_command,  # Add last_command to the history entry
     }
 
     # If an image path is provided, encode the image and add to the history entry
@@ -961,6 +993,7 @@ def update_chat_history(role, content, token_count=None, image_path=None):
 
     # Append the history entry to the chat history
     chat_history.append(history_entry)
+    last_command = None  # Reset last_command after updating chat history
     # Check and remove messages that are older than the decay time
     if CHECK_UMSGS_DECAY or CHECK_IMSGS_DECAY:
         chat_history = [
@@ -1354,10 +1387,18 @@ def recall_previous_summary(character_name):
     else:
         print("No initial profile summary found.")
 
-
+def listen_to_keyboard():
+    global last_key
+    while True:
+        event = keyboard.read_event()
+        if event.event_type == keyboard.KEY_DOWN:
+            with lock:
+                last_key = event.name
 
 # Function to take a screenshot
 def take_screenshot():
+    global last_key  # Ensure you are referring to the global variable updated by the listener thread
+
     if screenshot_options["current_window"]:
         # Code to capture the current window snapshot
         # Depending on the platform, you might need additional libraries and code
@@ -1366,17 +1407,60 @@ def take_screenshot():
     if screenshot_options["entire_screen"]:
         # Capture entire screen
         screenshot = ImageGrab.grab()
+    
+        # Get the mouse cursor's current position
+        cursor_position = pyautogui.position()
+
+        # Use the global last_key variable instead of reading the event here
+        with lock:  # Ensure thread-safe access to last_key
+            current_last_key = last_key
+
+        # Draw a representation of the cursor on the screenshot
+        draw = ImageDraw.Draw(screenshot)
+        cursor_size = 20  # Size of the cursor representation
+        draw.rectangle([cursor_position.x, cursor_position.y, cursor_position.x + cursor_size, cursor_position.y + cursor_size], outline="red")
+
+        # You can also draw the cursor position and last key pressed on the screenshot for visibility
+        text_position = (10, 10)  # Position of the text
+        draw.text(text_position, f"Cursor Pos: {cursor_position} | Last Key: {current_last_key}", fill="white")
+
         timestamp = int(time.time())
         screenshot_file_path = f"{logging_folder}/{timestamp}.png"
         screenshot.save(screenshot_file_path)
         # Now, we send the prompt and include the screenshot file path
-        auto_prompt_response = send_prompt_to_chatgpt("Here's a screenshot of my entire screen.", screenshot_file_path)
-        send_prompt_to_chatgpt(auto_prompt_response)
+        send_prompt_to_chatgpt("Here's a screenshot of my entire screen.", screenshot_file_path)
+
+        #auto_prompt_response = send_prompt_to_chatgpt("Here's a screenshot of my entire screen.", screenshot_file_path)
+        #send_prompt_to_chatgpt(auto_prompt_response)
         #send_prompt_to_chatgpt("auto prompt hello! ")
         #auto_prompt_response = send_prompt_to_chatgpt("meow ")
         #send_prompt_to_chatgpt(auto_prompt_response)
        # send_prompt_to_chatgpt("auto prompt:", screenshot_file_path)
 
+#def capture_screenshot_with_cursor_info(output_path):
+#    # Take a screenshot using ImageGrab
+#    screenshot = ImageGrab.grab()
+#    
+#    # Get the mouse cursor's current position
+#    cursor_position = pyautogui.position()
+#    
+#    # Optionally, get the last key pressed if that's important for your context
+#    last_key = keyboard.read_event(suppress=True).name if keyboard._os_keyboard.is_pressed(keyboard.read_event(suppress=True).scan_code) else "None"
+#
+#    # Draw a representation of the cursor on the screenshot
+#    draw = ImageDraw.Draw(screenshot)
+#    cursor_size = 20  # Size of the cursor representation
+#    draw.rectangle([cursor_position.x, cursor_position.y, cursor_position.x + cursor_size, cursor_position.y + cursor_size], outline="red")
+#
+#    # You can also draw the cursor position and last key pressed on the screenshot for visibility
+#    text_position = (10, 10)  # Position of the text
+#    draw.text(text_position, f"Cursor Pos: {cursor_position} | Last Key: {last_key}", fill="white")
+#
+#    # Save the combined screenshot with cursor and text information
+#    screenshot.save(output_path)
+
+# Use the function and provide a path to save the screenshot
+#capture_screenshot_with_cursor_info('screenshot_info.png')
 # Function to run the scheduled tasks
 def run_scheduled_tasks():
     while running:
@@ -1464,7 +1548,9 @@ schedule.every().day.at("19:00").do(save_daily_summary)
 # Dictionary to keep track of threads
 threads = {
     "user_input_thread": threading.Thread(target=user_input_handler),
+    "listen_to_keyboard": threading.Thread(target=listen_to_keyboard),
     "scheduled_tasks_thread": threading.Thread(target=run_scheduled_tasks)
+
 }
 
 # Start the threads and store them in the dictionary
