@@ -65,12 +65,12 @@ global last_command
 last_command = None
 
 last_key = None  # Initialize the global variable
-mouse_position = None
+mouse_position = {"x": 0, "y": 0}  # Initialize as a dictionary
 
 IMGS_DECAY = 200 # Setting the default decay time to 3 minutes for important messages
 UMSGS_DECAY = 1.175 # Setting the default decay time to 3 minutes for unimportant messages
 # Time interval between screenshots (in seconds)
-time_interval = 20.1
+time_interval = 995.1
 
 text_count = 0
 image_or_other_count = 0
@@ -85,15 +85,9 @@ channels = 2
 # Set the default device (verify that device 20 is indeed the correct device)
 sd.default.device = 1
 
-# Set the recording duration (I am assuming 5 seconds as an example)
-#duration = 5  # adjust as necessary
-
-# Start the recording
-#myrecording = sd.rec(int(duration * fs), samplerate=fs, channels=channels, dtype='int16', blocking=True)
-
-# Save the recording (replace 'my_recording.wav' with your preferred file path and name)
-#write('my_recording.wav', fs, myrecording)
 lock = Lock()
+mouse_position_lock = Lock()
+last_key_lock = Lock()
 
 
 # Parameters
@@ -189,8 +183,7 @@ def is_command(message):
         else:
             return False
     else:
-        # If POWER_WORD is required but is an empty string, we return False
-        # Otherwise, we proceed to check if the message is a known command
+
         # Assuming you have a function `is_known_command` that checks for known commands
         return is_known_command(message) 
     
@@ -202,7 +195,7 @@ is_known_command_prefixes = [
     'CLEAR', 'edit msgs', 'REMOVE_MSGS', 'DELETE_MSG:', 'SAVEPINNEDINIT',
     'SAVEPINNEDHANDOFF', 'SAVEEXEMPTIONS', 'SAVE PINS', 'SAVE ALL PINS',
     'HELP_VISIBILITY', 'HELP', 'hide', 'toggle', 'TOGGLE_SKIP_COMMANDS',
-    'DISPLAYHISTORY', 'VKPAG:'  # ... add any other command identifiers you need
+    'DISPLAYHISTORY', 'DHISTORY', 'VKPAG:'  # ... add any other command identifiers you need
     # Note: Make sure all prefixes are unique and not a subset of another prefix,
     # otherwise, it may cause issues in recognizing commands accurately.
 ]
@@ -260,57 +253,23 @@ def send_prompt_to_chatgpt(prompt, image_path=None):
         ]
 
 
-
         # Instead of just extending the messages with text content, use the provided snippet
         # to correctly format and include images as well.
         # Properly format chat history entries for messages
-
-        
-        
-        #for entry in chat_history:
-        #    # Check if the content type is not 'text'
-        #    if entry['content']['type'] != 'text':
-        #        # If it's an image or other type, encode and add as appropriate
-        #        # Assuming that 'image' is the only other type we handle specifically
-        #        if entry['content']['type'] == 'image_url':
-        #            messages.append({
-        #                "role": entry['role'],
-        #                "content": [{"type": "image_url", "image_url": f"data:image/png;base64,{entry['content']['data']}"}]
-        #            })
-        #        image_or_other_count += 1
-        #    else:
-        #        # Here we know the content type is 'text'
-        #        messages.append({
-        #            "role": entry['role'],
-        #            "content": entry['content']['text']
-        #        })
-        #        text_count += 1
-        #        first_10_chars = entry['content']['text'][:5]  # Get first 10 characters
-        #        print(f"Text Content (first 5 chars): '{first_10_chars}'")
-                # After the loop
-         #   print(entry)
-         #   print(type(entry['content']))
-         #   print(entry['content'])
-        #    if entry['content']['type'] == 'image':
-       #         # If the entry is an image, encode it and add it as an image_url content type
-       #         messages.append({
-       #             "role": entry['role'],
-       #             "content": [{"type": "image_url", "image_url": f"data:image/png;base64,{entry['content']['data']}"}]
-       #         })
-       #     elif entry['content']['type'] != 'text':
-       #             text_count += 1
-       #             image_or_other_count += 1   
-       #     elif entry['content']['type'] == 'text':
-       #         # If the entry is text, add it as plain text content
-       #         messages.append({
-       #             "role": entry['role'],
-       #             "content": entry['content']['text']
-       #         })
-       #             text_count += 1
-       #             first_10_chars = entry['content']['text'][:10]  # Get first 10 characters
-       #             print(f"Text Content (first 10 chars): '{first_10_chars}'")
-
-        # Now, you would add the current prompt or image that's being processed.
+        for entry in chat_history:
+            if entry['content']['type'] == 'image':
+                # If the entry is an image, encode it and add it as an image_url content type
+                messages.append({
+                    "role": entry['role'],
+                    "content": [{"type": "image_url", "image_url": f"data:image/png;base64,{entry['content']['data']}"}]
+                })
+            elif entry['content']['type'] == 'text':
+                # If the entry is text, add it as plain text content
+                messages.append({
+                    "role": entry['role'],
+                    "content": entry['content']['text']
+                })
+        #Now, you would add the current prompt or image that's being processed.
         if image_path:
             # If an image path is provided, you process it here as you have done before.
             base64_image = encode_image_to_base64(image_path)
@@ -321,29 +280,18 @@ def send_prompt_to_chatgpt(prompt, image_path=None):
                     {"type": "image_url", "image_url": f"data:image/png;base64,{base64_image}"}
                 ]
             })
+            # Add the image data to chat history using update_chat_history
+            update_chat_history("user", None, image_path=image_path)
         else:
-            # If there's no new image, you append the text prompt as usual.
+        # Handle text prompts
+            update_chat_history("user", prompt)
             messages.append({"role": "user", "content": prompt})
 
-        for entry in chat_history:
-            if entry['content']['type'] == 'text':
-                # Handle text entries
-                print(f"Text: {entry['content']['text']}")
-            elif entry['content']['type'] == 'data':
-                # Handle image entries
-                print(f"Image URL: {entry['content']['data']}")  #############################################YOU ARE TRYING TO FIX this, chat history and commands issues
-            else:
-                # Handle other types of entries
-                print(f"Other Content Type: {entry['content']['type']}")
-                print(chat_history)
 
-        print(f"Image/Other entries: {image_or_other_count}")    
-        print(f"Total entries: {len(chat_history)}")
-        print(f"Text entries: {text_count}")
         # Construct the payload
         payload = {
-            "model": "gpt-4-vision-preview",
-            #"model": "gpt-3.5-turbo-1106",
+            #"model": "gpt-4-vision-preview",
+            "model": "gpt-3.5-turbo-1106",
             "messages": messages,
             "max_tokens": 1937,
             "temperature": 0.5
@@ -357,27 +305,35 @@ def send_prompt_to_chatgpt(prompt, image_path=None):
             response_data = response.json()
             ai_response = response_data['choices'][0]['message']['content'].strip()
             
-            # Display the user's text and AI's response
-            timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            display_message("user", prompt)
-            chat_history.append({
-                "timestamp": timestamp,
-                'role': 'user',
-                'content': {
-                    'type': 'text',
-                    'text': f'Userer: {prompt}'
-                }
-            })
 
+            # Display and update chat history with AI's response
             display_message("assistant", ai_response)
-            chat_history.append({
-    "timestamp": timestamp,
-    'role': 'assistant',
-    'content': {
-        'type': 'text',
-        'text': f'ai: {ai_response}'
-    }
-})
+            update_chat_history("assistant", ai_response)
+  
+
+
+                   
+            for entry in chat_history:
+                #print(f"Timestampsssss: {entry['timestamp']}, Role: {entry['role']}")
+                
+
+                content_type = entry['content']['type']
+
+             # if content_type == 'text':
+              #      print(f"Text: {entry['content']['text'][:15]}...")
+                if content_type == 'image':
+                    image_data = entry['content'].get('data', '')
+                    if image_data:
+                        print(f"Image Data: {image_data[:15]}...")
+                    else:
+                        print("Image Data: Missing or empty 'data' key")
+                else:
+                    continue
+
+            #print(f"Image/Other entries: {image_or_other_count}")    
+            #print(f"Total entries: {len(chat_history)}")
+            #print(f"Text entries: {text_count}")
+            #print(f"CHAT_HISTORY: {chat_history}")
                 # Here you check if the AI's response is a command and handle it
             if is_command(ai_response):
                 handle_commands(ai_response, is_user=False)
@@ -512,7 +468,7 @@ def handle_commands(command_input, is_user=True):
     # Make sure `last_command` is also defined globally if needed
     global last_command
     last_command = command_input
-
+    command = None  # Define command before the try block
     try:
         if command_input.startswith("VKPAG:"):
             command_section = command_input[len("VKPAG:"):].strip()
@@ -662,8 +618,8 @@ def handle_commands(command_input, is_user=True):
                     else:
                         raise ValueError("Invalid command format")
                     pyautogui.write(command_input)
-                    display_message("system", f"Text typed out as fallback: {command_input}")
-
+                    display_message("system", f"~ {command_input}")
+                    #display_message("system", f"Text typed out as fallback: {command_input}")
                     update_chat_history('system', command_input)  # Log the command
                 except Exception as e:
                     display_message("system", f"Output: {command}. Error: {str(e)}.")
@@ -678,13 +634,12 @@ def handle_commands(command_input, is_user=True):
 
 
                 update_chat_history('system', command_input)  # Log the command
-    except Exception as e:
-        display_message("system", f"Failed to execute command: {command}. Error: {str(e)}.")
 
 # Example usage:
 #handle_commands("MIXEDCMD: press(enter); move(100,200); click; type(Hello, World!); hold(shift,2); drag(150,150,2); scroll_down(800)")
 
 
+        print("meow2")
 
         
         if command_input.startswith("TOGGLE_POWER_WORD"):
@@ -692,29 +647,8 @@ def handle_commands(command_input, is_user=True):
             display_message("system", f"POWER_WORD requirement toggled to {'ON' if REQUIRE_POWER_WORD else 'OFF'}.")
             return
 
-        # For each possible command, check if it's present in command_input
-        # Then execute its corresponding action
-        #if command_input.startswith("VKB_CMD:"):
-        #    command_section = command_input[len("VKB_CMD:"):].strip()
-        #    commands = command_section.split(';')
-        #    for command in commands:
-        #        command = command.strip()
-        #        try:
-        #            if '(' in command and ')' in command:  # Corrected to check in `command`
-        #                cmd, args_part = command.split('(', 1)
-        #                args_part = args_part.rstrip(')')
-        #                args = args_part.split(',') if args_part else []
-        #                cmd = cmd.strip().lower()  # Normalize the command
-        #            else:
-        #                args = []
-        #                cmd = command.lower()  # Command without arguments
 
 
-
-
-                    #elif cmd == "hold":
-                    #    key = args[0]
-                    #    duration = float(args[1]) if len(args) > 1 else None
                     #
                     #    # A dictionary mapping special key strings to their pyautogui functions
                     #    special_keys = {
@@ -723,49 +657,6 @@ def handle_commands(command_input, is_user=True):
                     #        "shift": 'shift',
                     #        "ctrl": 'ctrl',
                     #        # Add other special keys here as necessary
-                    #    }
-                    #
-                    #    # Check if the key is one of the special keys
-                    #    if key.lower() in special_keys:
-                    #        pyautogui.keyDown(special_keys[key.lower()])  # Hold down the special key
-                    #        if duration:
-                    #            pyautogui.sleep(duration)
-                    #            pyautogui.keyUp(special_keys[key.lower()])  # Release the special key after the duration
-                    #            display_message("system", f"{key.capitalize()} key held for {duration} seconds.")
-                    #        else:
-                    #            display_message("system", f"{key.capitalize()} key held down, waiting for release command.")
-                    #    else:
-                    #        pyautogui.keyDown(key)  # Hold down the regular key
-                    #        if duration:
-                    #            pyautogui.sleep(duration)
-                    #            pyautogui.keyUp(key)  # Release the regular key after the duration
-                    #            display_message("system", f"{key.capitalize()} key held for {duration} seconds.")
-                    #        else:
-                    #            display_message("system", f"{key.capitalize()} key held down, waiting for release command.")
-                    #    
-                    #
-
-                    # Removed the repeated logic to prevent overlap and confusion
-
-                #    update_chat_history('system', command_input)  # Log the command
-                #except Exception as e:
-                #    display_message("system", f"Failed to execute command: {command}. Error: {str(e)}.")
-
-
-        #if command_input.startswith("CURSORCMD:"):
-        #    command_section = command_input[10:].strip()
-        #    commands = command_section.split(';')
-        #    for command in commands:
-        #        command = command.strip()
-        #        try:
-        #            if '(' in command and ')' in command:
-        #                cmd, args_part = command.split('(', 1)
-        #                args_part = args_part.rstrip(')')
-        #                args = args_part.split(',') if args_part else []
-        #                cmd = cmd.strip().lower()  # Normalize the command
-        #            else:
-        #                args = []
-        #                cmd = command.lower()  # Command without arguments
 
 
 
@@ -844,15 +735,9 @@ def handle_commands(command_input, is_user=True):
             except ValueError:
                 print("Invalid command format.", percentage_to_clear,  "Expected format is 'CLEAR_NOPIN%{number}'.")
 
-        #if command_input.lower().startswith("CLEAR_NONPIN"):
-        #    chat_history = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context') or entry['content'].startswith('Exemption')]
-        #    print("Chat history cleared, only pinned summaries and exemptions remain.")
 
-     #   if command_input.startswith("CLEAR_NONPIN"):
-     #       chat_history = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context') or entry['content'].startswith('Exemption')]
-     #       print("Chat history cleared, only pinned summaries and exemptions remain.")
+        print("meow1")
 
-      
 
         if command_input.startswith("CLEAR%"):
         # Extract the percentage value from the command
@@ -971,14 +856,14 @@ def handle_commands(command_input, is_user=True):
             exemptions = [entry['content'][10:] for entry in chat_history if entry['content'].startswith('Exemption')]
             write_content_to_file("\n".join(exemptions), "exemptions.txt")
             update_chat_history('system', command_input)  # Assuming this is where you want to log the command
-
-        if command_input.lower().startswith('SAVE PINS'):
+        print("meow1")
+        if command_input.startswith('SAVE PINS'):
             pinned_entries = [entry['content'] for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Exemption') or entry['content'].startswith('Pinned Handoff context')]
             write_content_to_file("\n".join(pinned_entries), "pinned_entries.txt")
             update_chat_history('system', command_input)  # Assuming this is where you want to log the command
 
 
-        if command_input.lower().startswith('SAVE ALL PINS'):
+        if command_input.startswith('SAVE ALL PINS'):
             all_entries = [f"{entry['role']}: {entry['content']}" for entry in chat_history]
             write_content_to_file("\n".join(all_entries), "all_entries.txt")
             update_chat_history('system', command_input)  # Assuming this is where you want to log the command
@@ -998,7 +883,7 @@ def handle_commands(command_input, is_user=True):
 
     """)
             update_chat_history('system', command_input)  # Assuming this is where you want to log the command
-        if command_input  in ('HELP', '/HELP', '/?') or command_input.lower() in ('~help', '/help', '-h', '--help','/man', '-man','--man','-manual','--manual','/manual','-manual', '/info', '-info', '--info', '-?', '--?'):
+        if command_input.startswith(('HELP', '/HELP', '/?', '~help', '/help', '-h', '--help','/man', '-man','--man','-manual','--manual','/manual','-manual', '/info', '-info', '--info', '-?', '--?')):
             display_message("system", """
     Here is the list of available commands and their descriptions:
 
@@ -1137,27 +1022,52 @@ def handle_commands(command_input, is_user=True):
             SKIP_ADDING_COMMANDS_TO_CHAT_HISTORY = not SKIP_ADDING_COMMANDS_TO_CHAT_HISTORY
             display_message("system", f"Skipping adding commands to chat history: {SKIP_ADDING_COMMANDS_TO_CHAT_HISTORY}")
             return
-        #if command_input.startswith(("DISPLAYHISTORY", "DISPLAYHISTORY")) or command_input.lower() in ('displayhistory', 'display_history', '-ch','-dh','~ch','~dh'):
+
+        #if command_input.startswith("DISPLAYHISTORY") or command_input.lower() in ('displayhistory', 'display_history', '-ch', '-dh', '~ch', '~dh'):
         #    if chat_history:
         #        for entry in chat_history:
-        #            print(f"{entry.get('timestamp', 'No timestamp')} - {entry.get('role', 'No role')}: {entry.get('content', 'No content')}")
+        #            timestamp = entry.get('timestamp', 'No timestamp')
+        #            role = entry.get('role', 'No role')
+        #            # Check if content is a dictionary and has 'text' as a key
+        #            content = entry.get('content', {})
+        #            if isinstance(content, dict) and 'text' in content:
+        #                message = content['text']
+        #            else:
+        #                message = 'No content'
+        #            print(f"{timestamp} - {role}: {message}")
         #    else:
-        #        print("No messages in the chat history.")
-        if command_input.startswith("DISPLAYHISTORY") or command_input.lower() in ('displayhistory', 'display_history', '-ch', '-dh', '~ch', '~dh'):
-            if chat_history:
-                for entry in chat_history:
-                    timestamp = entry.get('timestamp', 'No timestamp')
-                    role = entry.get('role', 'No role')
-                    # Check if content is a dictionary and has 'text' as a key
-                    content = entry.get('content', {})
-                    if isinstance(content, dict) and 'text' in content:
-                        message = content['text']
-                    else:
+        #        print("No messages in the chat history.")    
+        #                # If none of the commands match
+        if command_input.startswith("DHISTORY"):
+                if chat_history:
+                    for entry in chat_history:
+                        timestamp = entry.get('timestamp', 'No timestamp')
+                        role = entry.get('role', 'No role')
+                        token_count = entry.get('token_count', 'N/A')
+                        last_key = entry.get('last_key', 'N/A')
+                        mouse_position = entry.get('mouse_position', 'N/A')
+                        last_command = entry.get('last_command', 'N/A')
+
+                        content = entry.get('content', {})
                         message = 'No content'
-                    print(f"{timestamp} - {role}: {message}")
-            else:
-                print("No messages in the chat history.")    
-                        # If none of the commands match
+
+                        if isinstance(content, dict):
+                            content_type = content.get('type')
+                            if content_type == 'text':
+                                message = content.get('text', 'No text content')[:15]
+                            elif content_type == 'image':
+                                image_data = content.get('data', '')
+                                message = f"Image Data: {image_data[:15]}..." if image_data else "Image Data: Missing or empty 'data' key"
+                            else:
+                                message = f'[Other content type: {content_type}]'
+
+                        print(f"{timestamp} - {role}: {message}")
+                        print(f"Token Count: {token_count}, Last Key: {last_key}, Mouse Position: {mouse_position}, Last Command: {last_command}")
+                else:
+                    print("No messages in the chat history.")
+    except Exception as e:
+        display_message("system", f"Failed to execute command: {command}. Error: {str(e)}.")
+                
         display_message("system", " e1")
     # Use the new display function for the AI's text
         role = "assistant" if not is_user else "user"
@@ -1226,6 +1136,14 @@ def update_chat_history(role, content, token_count=None, image_path=None):
     current_time = datetime.datetime.now()
     timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S')
     modified_content = content
+    # Update mouse position from pyautogui with error handling
+    # Acquire lock before accessing mouse_position
+    with mouse_position_lock:
+        try:
+            current_position = pyautogui.position()
+            mouse_position = {"x": current_position.x, "y": current_position.y}
+        except Exception as e:
+            print(f"Error getting mouse position: {e}")
 
     # Prepare the dictionary entry for the chat history
     history_entry = {
@@ -1682,36 +1600,12 @@ def take_screenshot():
         screenshot_file_path = f"{logging_folder}/{timestamp}.png"
         screenshot.save(screenshot_file_path)
         # Now, we send the prompt and include the screenshot file path
-        send_prompt_to_chatgpt("Here's a screenshot of my entire screen. Lets play Pokemon Blue in the VBA emulator. :3 We will play with individual button presses. Please simply reply to screenshots with only a command. VKPAG:click for example. If you need help, or have questions then ask away, but always be concise. with one or a short series set of individual button presses in response to each image. images will only update after a response is obtain from here. Display is 1920 X 1080 Landscape. ie click on folder/app called at mouse position x, y via move,x,y; leftclick; x,y select open keys in VBA emulator are Up: Up Arrow Please pretend like there is a parser listening for key commands and mouse commands the format from handle_commands of VKPAG:(PYAUTOGUI KEYBOARD/mouse commands, arguments);  VKPAG:hold_shift,1.5;move(100,200); rightClick(100,200); click(100,200)", screenshot_file_path)
+        #send_prompt_to_chatgpt("Here's a screenshot of my entire screen. Lets play Pokemon Blue in the VBA emulator. :3 We will play with individual button presses. Please simply reply to screenshots with only a command. VKPAG:click for example. If you need help, or have questions then ask away, but always be concise. with one or a short series set of individual button presses in response to each image. images will only update after a response is obtain from here. Display is 1920 X 1080 Landscape. ie click on folder/app called at mouse position x, y via move,x,y; leftclick; x,y select open keys in VBA emulator are Up: Up Arrow Please pretend like there is a parser listening for key commands and mouse commands the format from handle_commands of VKPAG:(PYAUTOGUI KEYBOARD/mouse commands, arguments);  VKPAG:hold_shift,1.5;move(100,200); rightClick(100,200); click(100,200)", screenshot_file_path)
+        send_prompt_to_chatgpt("please respond only with:'VKPAG:move(32,34);move(300,600)'", screenshot_file_path)
 
-        #auto_prompt_response = send_prompt_to_chatgpt("Here's a screenshot of my entire screen.", screenshot_file_path)
-        #send_prompt_to_chatgpt(auto_prompt_response)
-        #send_prompt_to_chatgpt("auto prompt hello! ")
         #auto_prompt_response = send_prompt_to_chatgpt("meow ")
         #send_prompt_to_chatgpt(auto_prompt_response)
        # send_prompt_to_chatgpt("auto prompt:", screenshot_file_path)
-
-#def capture_screenshot_with_cursor_info(output_path):
-#    # Take a screenshot using ImageGrab
-#    screenshot = ImageGrab.grab()
-#    
-#    # Get the mouse cursor's current position
-#    cursor_position = pyautogui.position()
-#    
-#    # Optionally, get the last key pressed if that's important for your context
-#    last_key = keyboard.read_event(suppress=True).name if keyboard._os_keyboard.is_pressed(keyboard.read_event(suppress=True).scan_code) else "None"
-#
-#    # Draw a representation of the cursor on the screenshot
-#    draw = ImageDraw.Draw(screenshot)
-#    cursor_size = 20  # Size of the cursor representation
-#    draw.rectangle([cursor_position.x, cursor_position.y, cursor_position.x + cursor_size, cursor_position.y + cursor_size], outline="red")
-#
-#    # You can also draw the cursor position and last key pressed on the screenshot for visibility
-#    text_position = (10, 10)  # Position of the text
-#    draw.text(text_position, f"Cursor Pos: {cursor_position} | Last Key: {last_key}", fill="white")
-#
-#    # Save the combined screenshot with cursor and text information
-#    screenshot.save(output_path)
 
 # Use the function and provide a path to save the screenshot
 #capture_screenshot_with_cursor_info('screenshot_info.png')
@@ -1770,9 +1664,6 @@ if not os.path.exists(logging_folder):
 
 
 
-# Send init prompt to ChatGPT
-#send_prompt_to_chatgpt(init_prompt)
-#print("ChatGPT response:", response_text)
 
 
 
@@ -1781,12 +1672,7 @@ initiate_and_handoff()
 
 
 
-# Create a thread for user input handling and start it
-#user_input_thread = threading.Thread(target=lambda: user_input_handler(input("Type your message, 'recall' to read previous summaries, or 'terminate_instance' to end: ")))
-#user_input_thread = threading.Thread(target=user_input_handler)
-#user_input_thread.daemon = True
-#user_input_thread.start()
-#
+
 #
 ## Schedule the screenshot taking function
 schedule.every(time_interval).seconds.do(take_screenshot)
@@ -1794,10 +1680,7 @@ schedule.every(time_interval).seconds.do(take_screenshot)
 ## Schedule daily summary
 schedule.every().day.at("19:00").do(save_daily_summary)
 #
-## Create a thread for running scheduled tasks and start it
-#scheduled_tasks_thread = threading.Thread(target=run_scheduled_tasks)
-#scheduled_tasks_thread.daemon = True
-#scheduled_tasks_thread.start()
+
 
 # Dictionary to keep track of threads
 threads = {
