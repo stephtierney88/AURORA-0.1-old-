@@ -67,6 +67,7 @@ last_command = None
 last_key = None  # Initialize the global variable
 mouse_position = {"x": 0, "y": 0}  # Initialize as a dictionary
 
+MAX_IMAGES_IN_HISTORY = 3  # Global variable for the maximum number of images to retain
 IMGS_DECAY = 200 # Setting the default decay time to 3 minutes for important messages
 UMSGS_DECAY = 1.175 # Setting the default decay time to 3 minutes for unimportant messages
 # Time interval between screenshots (in seconds)
@@ -174,6 +175,21 @@ audio_thread.start()
 def threshold_check(current_token_count, total_tokens, threshold_percentage):
     threshold = total_tokens * threshold_percentage / 100
     return current_token_count > threshold
+
+def manage_image_history(new_image):
+    global chat_history
+    # Count the current number of images in the history
+    image_count = sum(1 for entry in chat_history if entry['content']['type'] == 'image')
+
+    # If the limit is exceeded, remove the oldest image
+    if image_count >= MAX_IMAGES_IN_HISTORY:
+        # Find and remove the oldest image entry
+        chat_history = [entry for entry in chat_history if entry['content']['type'] != 'image' or image_count <= MAX_IMAGES_IN_HISTORY]
+        image_count -= 1  # Decrement the image count
+
+    # Add the new image to the chat history
+    if new_image:
+        chat_history.append({"role": "user", "content": {"type": "image", "data": new_image}})
 
 def is_command(message):
     global REQUIRE_POWER_WORD, POWER_WORD
@@ -639,7 +655,6 @@ def handle_commands(command_input, is_user=True):
 #handle_commands("MIXEDCMD: press(enter); move(100,200); click; type(Hello, World!); hold(shift,2); drag(150,150,2); scroll_down(800)")
 
 
-        print("meow2")
 
         
         if command_input.startswith("TOGGLE_POWER_WORD"):
@@ -676,6 +691,62 @@ def handle_commands(command_input, is_user=True):
             update_chat_history('assistant', f'Exemption: {exemption_context}')
             update_chat_history('system', command_input)  # Assuming this is where you want to log the command
         
+        # Edits single or multiple msgs via timestamp
+        if command_input.lower() in ("edit msgs"):
+            edit_commands = command_input[9:].split(';')
+            for edit_command in edit_commands:
+                try:
+                    # Assuming timestamp is at the end of the string, and split by space
+                    components = edit_command.strip().split(' ')
+                    timestamp = components[-1]
+                    new_content = ' '.join(components[:-1]).strip()
+        
+                    found = False
+                    for entry in chat_history:
+                        if entry['timestamp'] == timestamp:
+                            # Update timestamp to the current time
+                            current_time = datetime.datetime.now()
+                            new_timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S')
+                            
+                            # Calculate the new token count
+                            new_token_count = len(new_content.split())  # assuming each word is a token
+                            
+                            # Update the content, timestamp, and token_count in the entry
+                            entry['content'] = f"Edited: {new_content} {new_token_count} {new_timestamp}"
+                            entry['timestamp'] = new_timestamp
+                            entry['token_count'] = new_token_count
+                            found = True
+                            break
+                        
+                    if found:
+                        print(f"Message with timestamp {timestamp} edited successfully!")
+                        update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+                    else:
+                        print(f"No message found with timestamp {timestamp}.")
+                except ValueError:
+                    print(f"Invalid edit command format: {edit_command}. Correct format is 'new content timestamp'")
+
+
+
+#removes multiple msgs from chat history using a start and end timestamps
+        if command_input.startswith("REMOVE_MSGS"):
+            try:
+                _, time_range = command_input.split("REMOVE_MSGS", 1)
+                start_time_str, _, end_time_str = time_range.strip().partition(" to ")
+                start_time = datetime.datetime.strptime(start_time_str.strip(), '%Y-%m-%d %H:%M:%S')
+                end_time = datetime.datetime.strptime(end_time_str.strip(), '%Y-%m-%d %H:%M:%S')
+
+                messages_to_remove = [msg for msg in chat_history if start_time <= datetime.datetime.strptime(msg['timestamp'], '%Y-%m-%d %H:%M:%S') <= end_time]
+
+                if not messages_to_remove:
+                    print("No messages found within the provided time range.")
+                    return
+
+                chat_history = [msg for msg in chat_history if msg not in messages_to_remove]
+                print(f"Removed {len(messages_to_remove)} messages from the chat history.")
+                update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+            except Exception as e:
+                print(f"Error processing the REMOVE_MSGS command: {e}")
         if command_input.startswith('RETRIEVE_HANDOFF'):
             handoff_filename = command_input.split('_')[2].strip()
             if not handoff_filename:
@@ -736,7 +807,6 @@ def handle_commands(command_input, is_user=True):
                 print("Invalid command format.", percentage_to_clear,  "Expected format is 'CLEAR_NOPIN%{number}'.")
 
 
-        print("meow1")
 
 
         if command_input.startswith("CLEAR%"):
@@ -753,12 +823,22 @@ def handle_commands(command_input, is_user=True):
 
         if command_input.lower() in ("CLEAR ALL MESSAGES"):
         # Keep only the Pinned Init summary, Pinned Handoff context, and Pinned Messages w exemptions
-            chat_history = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context')]
+            chat_history = [
+    entry for entry in chat_history 
+    if 'text' in entry['content'] and 
+    (entry['content']['text'].startswith('Pinned Init summary') or 
+     entry['content']['text'].startswith('Pinned Handoff context'))
+]
+
             print("Chat history cleared, only pinned summaries remain.")
             update_chat_history('system', command_input)  # Assuming this is where you want to log the command
         if command_input.lower() in ("CLEAR INIT"):
             # Clears the Init summary
-            chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Init summary')]
+            chat_history = [
+    entry for entry in chat_history 
+    if 'text' in entry['content'] and 
+    not entry['content']['text'].startswith('Pinned Init summary')
+]
             print("Chat history cleared, Init summaries removed.") 
             update_chat_history('system', command_input)  # Assuming this is where you want to log the command
 
@@ -774,62 +854,6 @@ def handle_commands(command_input, is_user=True):
             print("Chat history cleared, Init summaries removed.")     
         
 
-        # Edits single or multiple msgs via timestamp
-        if command_input.lower() in ("edit msgs"):
-            edit_commands = command_input[9:].split(';')
-            for edit_command in edit_commands:
-                try:
-                    # Assuming timestamp is at the end of the string, and split by space
-                    components = edit_command.strip().split(' ')
-                    timestamp = components[-1]
-                    new_content = ' '.join(components[:-1]).strip()
-        
-                    found = False
-                    for entry in chat_history:
-                        if entry['timestamp'] == timestamp:
-                            # Update timestamp to the current time
-                            current_time = datetime.datetime.now()
-                            new_timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S')
-                            
-                            # Calculate the new token count
-                            new_token_count = len(new_content.split())  # assuming each word is a token
-                            
-                            # Update the content, timestamp, and token_count in the entry
-                            entry['content'] = f"Edited: {new_content} {new_token_count} {new_timestamp}"
-                            entry['timestamp'] = new_timestamp
-                            entry['token_count'] = new_token_count
-                            found = True
-                            break
-                        
-                    if found:
-                        print(f"Message with timestamp {timestamp} edited successfully!")
-                        update_chat_history('system', command_input)  # Assuming this is where you want to log the command
-                    else:
-                        print(f"No message found with timestamp {timestamp}.")
-                except ValueError:
-                    print(f"Invalid edit command format: {edit_command}. Correct format is 'new content timestamp'")
-
-
-
-#removes multiple msgs from chat history using a start and end timestamps
-        if command_input.startswith("REMOVE_MSGS"):
-            try:
-                _, time_range = command_input.split("REMOVE_MSGS", 1)
-                start_time_str, _, end_time_str = time_range.strip().partition(" to ")
-                start_time = datetime.datetime.strptime(start_time_str.strip(), '%Y-%m-%d %H:%M:%S')
-                end_time = datetime.datetime.strptime(end_time_str.strip(), '%Y-%m-%d %H:%M:%S')
-
-                messages_to_remove = [msg for msg in chat_history if start_time <= datetime.datetime.strptime(msg['timestamp'], '%Y-%m-%d %H:%M:%S') <= end_time]
-
-                if not messages_to_remove:
-                    print("No messages found within the provided time range.")
-                    return
-
-                chat_history = [msg for msg in chat_history if msg not in messages_to_remove]
-                print(f"Removed {len(messages_to_remove)} messages from the chat history.")
-                update_chat_history('system', command_input)  # Assuming this is where you want to log the command
-            except Exception as e:
-                print(f"Error processing the REMOVE_MSGS command: {e}")
 
         #deletes a specific msg from chathistory via timestamp
         if command_input.startswith("DELETE_MSG:"):
@@ -1159,6 +1183,8 @@ def update_chat_history(role, content, token_count=None, image_path=None):
     if image_path:
         base64_image = encode_image_to_base64(image_path)
         history_entry["content"] = {"type": "image", "data": base64_image}
+        # Manage the number of images in the chat history
+        manage_image_history(base64_image)        
     else:
         history_entry["content"] = {"type": "text", "text": content}
 
