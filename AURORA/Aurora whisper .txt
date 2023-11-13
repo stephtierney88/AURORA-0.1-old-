@@ -267,12 +267,18 @@ def send_prompt_to_chatgpt(prompt, image_path=None):
         messages = [
             {"role": "system", "content": "You are a helpful assistant."}
         ]
+                # Check for pinned messages
+                # Add a default pinned message if none exists
+        if not any(entry.get('Exemption') in ['Pinned', 'Init', 'Handoff', 'Special'] for entry in chat_history):
+            default_pinned_message = "Exemption: Edit this message by using command edit msgs timestamp"
+            update_chat_history("system", {'type': 'text', 'text': default_pinned_message}, exemption='Pinned')
 
 
         # Instead of just extending the messages with text content, use the provided snippet
         # to correctly format and include images as well.
         # Properly format chat history entries for messages
         for entry in chat_history:
+
             if entry['content']['type'] == 'image':
                 # If the entry is an image, encode it and add it as an image_url content type
                 messages.append({
@@ -687,9 +693,10 @@ def handle_commands(command_input, is_user=True):
 
         if command_input.startswith("PIN"):
             exemption_context = command_input[4:].strip()
+            exemption_type = "Pinned"  # or other types like "Init", "Handoff", "Special" based on your logic
             display_message("assistant", f'Exemption: {exemption_context}', include_command=True)
-            update_chat_history('assistant', f'Exemption: {exemption_context}')
-            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+            update_chat_history('assistant', {'type': 'text', 'text': f'Exemption: {exemption_context}'}, exemption=exemption_type)
+            update_chat_history('system', command_input)
         
         # Edits single or multiple msgs via timestamp
         if command_input.lower() in ("edit msgs"):
@@ -705,16 +712,21 @@ def handle_commands(command_input, is_user=True):
                     for entry in chat_history:
                         if entry['timestamp'] == timestamp:
                             # Update timestamp to the current time
+                            # Preserve the exemption status unless explicitly changed
+                            current_exemption = entry.get('Exemption', 'None')
+                            entry['Exemption'] = current_exemption
                             current_time = datetime.datetime.now()
                             new_timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S')
-                            
+                            # Preserve the exemption status
+                            current_exemption = entry.get('Exemption', 'None')        
                             # Calculate the new token count
                             new_token_count = len(new_content.split())  # assuming each word is a token
                             
                             # Update the content, timestamp, and token_count in the entry
-                            entry['content'] = f"Edited: {new_content} {new_token_count} {new_timestamp}"
-                            entry['timestamp'] = new_timestamp
+                            entry['content'] = {'type': 'text', 'text': f"Edited: {new_content} {new_token_count} {new_timestamp}"}                          
                             entry['token_count'] = new_token_count
+                            entry['timestamp'] = new_timestamp
+                            entry['Exemption'] = current_exemption
                             found = True
                             break
                         
@@ -747,6 +759,7 @@ def handle_commands(command_input, is_user=True):
                 update_chat_history('system', command_input)  # Assuming this is where you want to log the command
             except Exception as e:
                 print(f"Error processing the REMOVE_MSGS command: {e}")
+                
         if command_input.startswith('RETRIEVE_HANDOFF'):
             handoff_filename = command_input.split('_')[2].strip()
             if not handoff_filename:
@@ -842,17 +855,37 @@ def handle_commands(command_input, is_user=True):
             print("Chat history cleared, Init summaries removed.") 
             update_chat_history('system', command_input)  # Assuming this is where you want to log the command
 
+
+
+
+
+
+
+
         if command_input.lower() in ("CLEAR PIN"):
-            # Clears the Init summary
-            chat_history = [entry for entry in chat_history if not entry['content'].startswith('Exemption')]
-            print("Chat history cleared, Init summaries removed.") 
-            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+            chat_history = [entry for entry in chat_history if entry.get('Exemption') != 'Pinned']
+            print("Pinned messages cleared.")
+            update_chat_history('system', command_input)
+
+
+
+
+
+
+
+
+
+
+
+
 
         if command_input.lower() in ("CLEAR HANDOFF"):
             # Clears the Init summary
             chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Handoff context')]
             print("Chat history cleared, Init summaries removed.")     
         
+
+
 
 
         #deletes a specific msg from chathistory via timestamp
@@ -866,10 +899,20 @@ def handle_commands(command_input, is_user=True):
 
 
 
+
+
         if command_input.startswith('SAVEPINNEDINIT'):
-            pinned_init_summaries = [entry['content'][19:] for entry in chat_history if entry['content'].startswith('Pinned Init summary')]
+            pinned_init_summaries = [entry['content']['text'][19:] for entry in chat_history if isinstance(entry['content'], dict) and entry['content']['text'].startswith('Pinned Init summary')]            
             write_content_to_file("\n".join(pinned_init_summaries), "pinned_init_summaries.txt")
             update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+
+
+
+
+
+
+
+
 
         if command_input.startswith('SAVEPINNEDHANDOFF'):
             pinned_handoff_contexts = [entry['content'][22:] for entry in chat_history if entry['content'].startswith('Pinned Handoff context')]
@@ -1137,7 +1180,7 @@ def handle_commands(command_input, is_user=True):
             clear_percentage_except_pinned_and_exempt("CLEAR%70")
             token_counter = 0   
          
-def update_chat_history(role, content, token_count=None, image_path=None):
+def update_chat_history(role, content, token_count=None, image_path=None, exemption='None'):
     global chat_history
     global enable_unimportant_messages
     global enable_important_messages
@@ -1174,6 +1217,7 @@ def update_chat_history(role, content, token_count=None, image_path=None):
         "timestamp": timestamp,
         "role": role,
         "token_count": token_count,
+        "Exemption": exemption,
         "last_key": last_key,  # Add this line to include the last key press
         "mouse_position": mouse_position,  # Add this line to include the current mouse position
         "last_command": last_command,  # Add last_command to the history entry
