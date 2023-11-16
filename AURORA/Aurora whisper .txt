@@ -64,10 +64,12 @@ hide_input = None
 global last_command
 last_command = None
 
+
 last_key = None  # Initialize the global variable
 mouse_position = {"x": 0, "y": 0}  # Initialize as a dictionary
 
 MAX_IMAGES_IN_HISTORY = 3  # Global variable for the maximum number of images to retain
+
 IMGS_DECAY = 200 # Setting the default decay time to 3 minutes for important messages
 UMSGS_DECAY = 1.175 # Setting the default decay time to 3 minutes for unimportant messages
 # Time interval between screenshots (in seconds)
@@ -75,7 +77,9 @@ time_interval = 995.1
 
 text_count = 0
 image_or_other_count = 0
-
+# Default values defined at the beginning of your script
+default_scroll_amount = 100  # Default scroll amount
+default_double_click_speed = 0.5  # Default double-click speed
 
 #script_directory = os.path.dirname(os.path.abspath(__file__))
 script_directory = 'C:\\Users\\thebeast\\OneDrive\\Desktop\\AURORA'
@@ -253,6 +257,8 @@ def send_prompt_to_chatgpt(prompt, image_path=None):
     global init_handoff_in_progress
     global text_count
     global image_or_other_count
+    image_detail = "low"  # or "high" depending on your requirement
+
     # Ensure the lock and headers are defined at the appropriate place in your code.
     with lock:
         # Headers for the API request
@@ -316,7 +322,8 @@ def send_prompt_to_chatgpt(prompt, image_path=None):
             "model": "gpt-3.5-turbo-1106",
             "messages": messages,
             "max_tokens": 1937,
-            "temperature": 0.5
+            "temperature": 0.5,
+            "detail": image_detail  # Add the detail parameter here
         }
     
         # Make the POST request
@@ -352,10 +359,7 @@ def send_prompt_to_chatgpt(prompt, image_path=None):
                 else:
                     continue
 
-            #print(f"Image/Other entries: {image_or_other_count}")    
-            #print(f"Total entries: {len(chat_history)}")
-            #print(f"Text entries: {text_count}")
-            #print(f"CHAT_HISTORY: {chat_history}")
+
                 # Here you check if the AI's response is a command and handle it
             if is_command(ai_response):
                 handle_commands(ai_response, is_user=False)
@@ -523,27 +527,41 @@ def handle_commands(command_input, is_user=True):
                             display_message("system", f"Key pressed: {key}")
 
                     elif cmd == "move":
-                        x, y = map(int, args)
-                        pyautogui.moveTo(x, y)
-                        display_message("system", f"Cursor moved to ({x}, {y})")
+                     try:
+                         x, y = map(int, args)
+                         if 0 <= x <= screen_width and 0 <= y <= screen_height:  # screen_width and screen_height should be your screen's resolution
+                             pyautogui.moveTo(x, y)
+                             display_message("system", f"Cursor moved to ({x}, {y})")
+                         else:
+                             raise ValueError("Coordinates out of screen bounds")
+                     except ValueError:
+                         display_message("error", "Invalid coordinates for move command")
 
+
+                    elif cmd in ["press", "hold"]:
+                        key = args[0].strip().lower()
+                        if key in pyautogui.KEYBOARD_KEYS:
+                            if cmd == "press":
+                                pyautogui.press(key)
+                                display_message("system", f"Key pressed: {key}")
+                            else:
+                                # Handle hold command
+                        else:
+                            display_message("error", f"Invalid key name: {key}")
 
     
                     elif cmd == "hold":
-                        key = args[0]
+                        key = args[0].strip().lower()
                         duration = float(args[1]) if len(args) > 1 else None
-                        if key.lower() == "plus":
-                            pyautogui.keyDown('+')
-                            if duration:
-                                pyautogui.sleep(duration)
-                                pyautogui.keyUp('+')
-                            display_message("system", f"Plus key held for {duration} seconds.")
-                        else:
+                        if key in pyautogui.KEYBOARD_KEYS:
                             pyautogui.keyDown(key)
                             if duration:
                                 pyautogui.sleep(duration)
                                 pyautogui.keyUp(key)
                             display_message("system", f"Key held for {duration} seconds: {key}")
+                        else:
+                            display_message("error", f"Invalid key name: {key}")
+
     
                     elif cmd == "drag":
                         x, y, duration = map(float, args)
@@ -552,7 +570,7 @@ def handle_commands(command_input, is_user=True):
     
                     elif cmd.startswith("scroll"):
                         direction_units = cmd.split('_')
-                        units = int(args[0]) if args else 100  # Default scroll amount
+                        units = int(args[0]) if args else default_scroll_amount
                         if "down" in direction_units:
                             pyautogui.scroll(-units)
                         else:
@@ -608,7 +626,7 @@ def handle_commands(command_input, is_user=True):
                         # Default to 1 click if no arguments
                         count = int(args[0]) if args and args[0].isdigit() else 1  
                         for _ in range(count):
-                            pyautogui.doubleClick()
+                            pyautogui.doubleClick(interval=default_double_click_speed)
                         display_message("system", f"Executed {count} click(s)")    
 
 
