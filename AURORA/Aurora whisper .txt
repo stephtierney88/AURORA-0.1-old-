@@ -63,7 +63,9 @@ hide_input = None
 # Global variable to store the last executed command
 global last_command
 last_command = None
-
+screen_width, screen_height = pyautogui.size()
+#image_detail =  "high"   # "low" or depending on your requirement
+image_detail =  "low"   # "high" or depending on your requirement
 
 last_key = None  # Initialize the global variable
 mouse_position = {"x": 0, "y": 0}  # Initialize as a dictionary
@@ -73,7 +75,7 @@ MAX_IMAGES_IN_HISTORY = 3  # Global variable for the maximum number of images to
 IMGS_DECAY = 200 # Setting the default decay time to 3 minutes for important messages
 UMSGS_DECAY = 1.175 # Setting the default decay time to 3 minutes for unimportant messages
 # Time interval between screenshots (in seconds)
-time_interval = 995.1
+time_interval = 25.1
 
 text_count = 0
 image_or_other_count = 0
@@ -93,7 +95,7 @@ sd.default.device = 1
 lock = Lock()
 mouse_position_lock = Lock()
 last_key_lock = Lock()
-
+image_history_lock = Lock()
 
 # Parameters
 threshold = 31.11  
@@ -180,20 +182,9 @@ def threshold_check(current_token_count, total_tokens, threshold_percentage):
     threshold = total_tokens * threshold_percentage / 100
     return current_token_count > threshold
 
-def manage_image_history(new_image):
-    global chat_history
-    # Count the current number of images in the history
-    image_count = sum(1 for entry in chat_history if entry['content']['type'] == 'image')
 
-    # If the limit is exceeded, remove the oldest image
-    if image_count >= MAX_IMAGES_IN_HISTORY:
-        # Find and remove the oldest image entry
-        chat_history = [entry for entry in chat_history if entry['content']['type'] != 'image' or image_count <= MAX_IMAGES_IN_HISTORY]
-        image_count -= 1  # Decrement the image count
 
-    # Add the new image to the chat history
-    if new_image:
-        chat_history.append({"role": "user", "content": {"type": "image", "data": new_image}})
+
 
 def is_command(message):
     global REQUIRE_POWER_WORD, POWER_WORD
@@ -257,8 +248,9 @@ def send_prompt_to_chatgpt(prompt, image_path=None):
     global init_handoff_in_progress
     global text_count
     global image_or_other_count
-    image_detail = "low"  # or "high" depending on your requirement
 
+    current_time = datetime.datetime.now()
+    timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S')
     # Ensure the lock and headers are defined at the appropriate place in your code.
     with lock:
         # Headers for the API request
@@ -276,7 +268,7 @@ def send_prompt_to_chatgpt(prompt, image_path=None):
                 # Check for pinned messages
                 # Add a default pinned message if none exists
         if not any(entry.get('Exemption') in ['Pinned', 'Init', 'Handoff', 'Special'] for entry in chat_history):
-            default_pinned_message = "Exemption: Edit this message by using command edit msgs timestamp"
+            default_pinned_message = "Exemption: PINNED:PRIORITY GOALS: [Editable area for priority goals (10)] APRIORITY GOALS: [Editable area for apriority goals] NOTES: [Editable area for notes]"
             update_chat_history("system", {'type': 'text', 'text': default_pinned_message}, exemption='Pinned')
 
 
@@ -305,7 +297,8 @@ def send_prompt_to_chatgpt(prompt, image_path=None):
                 "role": "user",
                 "content": [
                     {"type": "text", "text": "What’s in this image please be short and concise? How many images are in this conversation so far?"},  # Use your specific prompt if needed
-                    {"type": "image_url", "image_url": f"data:image/png;base64,{base64_image}"}
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}",
+                 "detail": image_detail}}
                 ]
             })
             # Add the image data to chat history using update_chat_history
@@ -318,12 +311,12 @@ def send_prompt_to_chatgpt(prompt, image_path=None):
 
         # Construct the payload
         payload = {
-            #"model": "gpt-4-vision-preview",
-            "model": "gpt-3.5-turbo-1106",
+            "model": "gpt-4-vision-preview",
+            #"model": "gpt-3.5-turbo-1106",
             "messages": messages,
             "max_tokens": 1937,
-            "temperature": 0.5,
-            "detail": image_detail  # Add the detail parameter here
+            "temperature": 0.5
+           #"detail": image_detail  # Add the detail parameter here
         }
     
         # Make the POST request
@@ -338,26 +331,27 @@ def send_prompt_to_chatgpt(prompt, image_path=None):
             # Display and update chat history with AI's response
             display_message("assistant", ai_response)
             update_chat_history("assistant", ai_response)
-  
+            print("meow")
+            print(chat_history)
+            print("NYAN")
 
 
                    
+            image_count = 0
             for entry in chat_history:
-                #print(f"Timestampsssss: {entry['timestamp']}, Role: {entry['role']}")
-                
-
-                content_type = entry['content']['type']
-
-             # if content_type == 'text':
-              #      print(f"Text: {entry['content']['text'][:15]}...")
-                if content_type == 'image':
+                if entry['content']['type'] == 'image':
                     image_data = entry['content'].get('data', '')
+                    timestamp = entry.get('timestamp', 'No timestamp')
                     if image_data:
-                        print(f"Image Data: {image_data[:15]}...")
+                        # Skip the first 5 characters and then take a slice from the string
+                        #middle_part = image_data[5:15]  # Adjust indices as needed
+                        middle_part = image_data[85:95]  # Adjust indices as needed                        
+                        end_part = image_data[106:110]  # Last 6 characters
+                        print(f"Image {image_count} Timestamp: {timestamp}, Data Middle: {middle_part}, Data End: {end_part}...")
                     else:
-                        print("Image Data: Missing or empty 'data' key")
-                else:
-                    continue
+                        print(f"Image {image_count} Timestamp: {timestamp}, Image Data: Missing or empty 'data' key")
+                    image_count += 1
+
 
 
                 # Here you check if the AI's response is a command and handle it
@@ -384,6 +378,105 @@ def send_prompt_to_chatgpt(prompt, image_path=None):
             print(f"Message: {response.text}")
             return None
 
+def manage_image_history(new_image):
+    global chat_history
+    global MAX_IMAGES_IN_HISTORY
+    current_time = datetime.datetime.now()
+
+    with image_history_lock: 
+         # Iterate over chat history and ensure all image entries have a timestamp
+         for entry in chat_history:
+             if entry['content']['type'] == 'image' and 'timestamp' not in entry:
+                 entry['timestamp'] = current_time.strftime('%Y-%m-%d %H:%M:%S')  # Assign current timestamp
+
+         # Filter out entries that are images
+         image_entries = [entry for entry in chat_history if entry['content']['type'] == 'image']
+
+         # If the limit is exceeded or reached, remove the oldest image(s)
+         while len(image_entries) >= MAX_IMAGES_IN_HISTORY:
+             # Find the oldest image based on timestamp
+             oldest_image_entry = min(image_entries, key=lambda x: x['timestamp'])
+             chat_history.remove(oldest_image_entry)  # Remove the oldest image from chat history
+             image_entries.remove(oldest_image_entry)  # Update the list of image entries
+
+         # Add the new image to the chat history
+         if new_image:
+             chat_history.append({"role": "user", "content": {"type": "image", "data": new_image, "timestamp": current_time.strftime('%Y-%m-%d %H:%M:%S')}})
+
+def update_chat_history(role, content, token_count=None, image_path=None, exemption='None'):
+    global chat_history
+    global enable_unimportant_messages
+    global enable_important_messages
+    global mouse_position  # make sure to include this global if you want to use it in the function
+    global last_key  # make sure to include this global if you want to use it in the function
+    global last_command  # Use the global variable here
+
+    global ADD_UMSGS_TO_HISTORY
+    global ADD_IMSGS_TO_HISTORY
+
+    if is_unimportant_message(content) and not enable_unimportant_messages:
+        return
+    if is_important_message(content) and not enable_important_messages:
+        return
+    if is_unimportant_message(content) and not ADD_UMSGS_TO_HISTORY:
+        return
+    if is_important_message(content) and not ADD_IMSGS_TO_HISTORY:
+        return
+
+    current_time = datetime.datetime.now()
+    timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S')
+    #modified_content = content
+    # Check if the message is a special type like PINNED, Init, or Special
+    if exemption in ['Pinned', 'Init', 'Special']:
+        # Format the message to include the timestamp
+        content_with_timestamp = f"[Timestamp: {timestamp}] {content}"
+    else:
+        content_with_timestamp = content
+
+    # Update mouse position from pyautogui with error handling
+    # Acquire lock before accessing mouse_position
+    with mouse_position_lock:
+        try:
+            current_position = pyautogui.position()
+            mouse_position = {"x": current_position.x, "y": current_position.y}
+        except Exception as e:
+            print(f"Error getting mouse position: {e}")
+
+    # Prepare the dictionary entry for the chat history
+    history_entry = {
+        "timestamp": timestamp,
+        "role": role,
+        "token_count": token_count,
+        "Exemption": exemption,
+        "last_key": last_key,  # Add this line to include the last key press
+        "mouse_position": mouse_position,  # Add this line to include the current mouse position
+        "last_command": last_command,  # Add last_command to the history entry
+    }
+
+    # If an image path is provided, encode the image and add to the history entry
+    if image_path:
+        base64_image = encode_image_to_base64(image_path)
+        history_entry["content"] = {
+        "type": "image",
+        "data": base64_image,
+        "detail": image_detail,
+        "timestamp": timestamp  # Include timestamp here
+    }
+        manage_image_history(base64_image)  # Manage the image history        
+    else:
+        history_entry["content"] = {"type": "text", "text": content_with_timestamp}
+        chat_history.append(history_entry)
+
+
+    # Append the history entry to the chat history
+    last_command = None  # Reset last_command after updating chat history
+    # Check and remove messages that are older than the decay time
+    if CHECK_UMSGS_DECAY or CHECK_IMSGS_DECAY:
+        chat_history = [
+            entry for entry in chat_history 
+            if not (CHECK_UMSGS_DECAY and is_unimportant_message(entry['content']) and (current_time - datetime.datetime.strptime(entry['timestamp'], '%Y-%m-%d %H:%M:%S')).total_seconds()/60 > UMSGS_DECAY)
+            and not (CHECK_IMSGS_DECAY and is_important_message(entry['content']) and (current_time - datetime.datetime.strptime(entry['timestamp'], '%Y-%m-%d %H:%M:%S')).total_seconds()/60 > IMGS_DECAY)
+        ]
 
 
 
@@ -469,7 +562,7 @@ def handle_commands(command_input, is_user=True):
     global ADD_IMSGS_TO_HISTORY
     global Always_
     global hide_input
-    print(f"STCGPT1")
+    #print(f"STCGPT1")
     # Check if commands should be disabled
     if command_input.startswith('/*'):
         disable_commands = True
@@ -479,16 +572,16 @@ def handle_commands(command_input, is_user=True):
         disable_commands = False
         display_message("system", "Command processing is now enabled.")
         return
-    print(f"STCGPT2")
+    #print(f"STCGPT2")
     # If commands are disabled, ignore the rest
     if disable_commands:
         display_message("system", "Command processing is currently disabled.")
         return
-    print(f"STCGPT3")
+    #print(f"STCGPT3")
 
     if command_input is None:
         return
-    print(f"STCGPT4")
+    #print(f"STCGPT4")
 
     # Update the last_command with the current command
     # Make sure `last_command` is also defined globally if needed
@@ -516,15 +609,22 @@ def handle_commands(command_input, is_user=True):
                         cmd = command.lower()
 
                     # Handle commands
-                    if cmd == "press":
-                        key = args[0].strip()
-                        if key.lower() == "plus":
-                            # Special case for the plus key, if "plus" is the argument after "press"
-                            pyautogui.press('+')
-                            display_message("system", f"Plus key pressed.")
+                    if cmd in ["press", "hold"]:
+                        key = args[0].strip().lower()
+                        if key in pyautogui.KEYBOARD_KEYS:
+                            if cmd == "press":
+                                pyautogui.press(key)
+                                display_message("system", f"Key pressed: {key}")
+                            elif cmd == "hold":
+                                duration = float(args[1]) if len(args) > 1 else None
+                                pyautogui.keyDown(key)
+                                if duration:
+                                    pyautogui.sleep(duration)
+                                    pyautogui.keyUp(key)
+                                display_message("system", f"Key held for {duration} seconds: {key}")
                         else:
-                            pyautogui.press(key)
-                            display_message("system", f"Key pressed: {key}")
+                            display_message("error", f"Invalid key name: {key}")
+
 
                     elif cmd == "move":
                      try:
@@ -537,30 +637,6 @@ def handle_commands(command_input, is_user=True):
                      except ValueError:
                          display_message("error", "Invalid coordinates for move command")
 
-
-                    elif cmd in ["press", "hold"]:
-                        key = args[0].strip().lower()
-                        if key in pyautogui.KEYBOARD_KEYS:
-                            if cmd == "press":
-                                pyautogui.press(key)
-                                display_message("system", f"Key pressed: {key}")
-                            else:
-                                # Handle hold command
-                        else:
-                            display_message("error", f"Invalid key name: {key}")
-
-    
-                    elif cmd == "hold":
-                        key = args[0].strip().lower()
-                        duration = float(args[1]) if len(args) > 1 else None
-                        if key in pyautogui.KEYBOARD_KEYS:
-                            pyautogui.keyDown(key)
-                            if duration:
-                                pyautogui.sleep(duration)
-                                pyautogui.keyUp(key)
-                            display_message("system", f"Key held for {duration} seconds: {key}")
-                        else:
-                            display_message("error", f"Invalid key name: {key}")
 
     
                     elif cmd == "drag":
@@ -615,6 +691,54 @@ def handle_commands(command_input, is_user=True):
                             else:
                                 display_message("system", f"Key {key} held down, waiting for release command.")
 
+                    elif cmd == "multi_press":
+                        keys = []
+                        for key in args:
+                            key = key.strip().lower()
+                            if key == "plus":
+                                keys.append('+')  # Translate "plus" to "+"
+                            elif key in pyautogui.KEYBOARD_KEYS:
+                                keys.append(key)
+                        if keys:
+                            pyautogui.hotkey(*keys)
+                            display_message("system", f"Simultaneously pressed keys: {', '.join(keys)}")
+                        else:
+                            display_message("error", "Invalid keys for multi_press command")
+
+
+                    elif cmd == "multi_hold":
+                        keys = []
+                        for key in args:
+                            key = key.strip().lower()
+                            if key == "plus":
+                                keys.append('+')  # Translate "plus" to "+"
+                            elif key in pyautogui.KEYBOARD_KEYS:
+                                keys.append(key)
+                        if keys:
+                            for key in keys:
+                                pyautogui.keyDown(key)
+                            display_message("system", f"Keys held down: {', '.join(keys)}")
+                        else:
+                            display_message("error", "Invalid keys for multi_hold command")
+
+                    elif cmd == "multi_release":
+                        keys = []
+                        for key in args:
+                            key = key.strip().lower()
+                            if key == "plus":
+                                keys.append('+')  # Translate "plus" to "+"
+                            elif key in pyautogui.KEYBOARD_KEYS:
+                                keys.append(key)
+                        if keys:
+                            for key in keys:
+                                pyautogui.keyUp(key)
+                            display_message("system", f"Keys released: {', '.join(keys)}")
+                        else:
+                            display_message("error", "Invalid keys for multi_release command")
+
+
+
+
                     elif cmd == "click" or cmd == "leftclick":
                         # Default to 1 click if no arguments
                         count = int(args[0]) if args and args[0].isdigit() else 1  
@@ -664,6 +788,46 @@ def handle_commands(command_input, is_user=True):
                 except Exception as e:
                     display_message("system", f"Output: {command}. Error: {str(e)}.")
       
+        # Edits single or multiple msgs via timestamp
+        if command_input.lower() in ("edit msgs"):
+            edit_commands = command_input[9:].split(';')
+            for edit_command in edit_commands:
+                try:
+                    # Assuming timestamp is at the end of the string, and split by space
+                    components = edit_command.strip().split(' ')
+                    timestamp = components[-1]
+                    new_content = ' '.join(components[:-1]).strip()
+        
+                    found = False
+                    for entry in chat_history:
+                        if entry['timestamp'] == timestamp:
+                            # Update timestamp to the current time
+                            # Preserve the exemption status unless explicitly changed
+                            current_exemption = entry.get('Exemption', 'None')
+                            entry['Exemption'] = current_exemption
+                            current_time = datetime.datetime.now()
+                            new_timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S')
+                            # Preserve the exemption status
+                            current_exemption = entry.get('Exemption', 'None')        
+                            # Calculate the new token count
+                            new_token_count = len(new_content.split())  # assuming each word is a token
+                            
+                            # Update the content, timestamp, and token_count in the entry
+                            entry['content'] = {'type': 'text', 'text': f"Edited: {new_content} {new_token_count} {new_timestamp}"}                          
+                            entry['token_count'] = new_token_count
+                            entry['timestamp'] = new_timestamp
+                            entry['Exemption'] = current_exemption
+                            found = True
+                            break
+                        
+                    if found:
+                        print(f"Message with timestamp {timestamp} edited successfully!")
+                        update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+                    else:
+                        print(f"No message found with timestamp {timestamp}.")
+                except ValueError:
+                    print(f"Invalid edit command format: {edit_command}. Correct format is 'new content timestamp'")
+    
         if command_input.startswith('toggle_always'):
             params = command_input.split()[1:]
             if len(params) == 2:
@@ -674,6 +838,7 @@ def handle_commands(command_input, is_user=True):
 
 
                 update_chat_history('system', command_input)  # Log the command
+
 
 # Example usage:
 #handle_commands("MIXEDCMD: press(enter); move(100,200); click; type(Hello, World!); hold(shift,2); drag(150,150,2); scroll_down(800)")
@@ -716,45 +881,6 @@ def handle_commands(command_input, is_user=True):
             update_chat_history('assistant', {'type': 'text', 'text': f'Exemption: {exemption_context}'}, exemption=exemption_type)
             update_chat_history('system', command_input)
         
-        # Edits single or multiple msgs via timestamp
-        if command_input.lower() in ("edit msgs"):
-            edit_commands = command_input[9:].split(';')
-            for edit_command in edit_commands:
-                try:
-                    # Assuming timestamp is at the end of the string, and split by space
-                    components = edit_command.strip().split(' ')
-                    timestamp = components[-1]
-                    new_content = ' '.join(components[:-1]).strip()
-        
-                    found = False
-                    for entry in chat_history:
-                        if entry['timestamp'] == timestamp:
-                            # Update timestamp to the current time
-                            # Preserve the exemption status unless explicitly changed
-                            current_exemption = entry.get('Exemption', 'None')
-                            entry['Exemption'] = current_exemption
-                            current_time = datetime.datetime.now()
-                            new_timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S')
-                            # Preserve the exemption status
-                            current_exemption = entry.get('Exemption', 'None')        
-                            # Calculate the new token count
-                            new_token_count = len(new_content.split())  # assuming each word is a token
-                            
-                            # Update the content, timestamp, and token_count in the entry
-                            entry['content'] = {'type': 'text', 'text': f"Edited: {new_content} {new_token_count} {new_timestamp}"}                          
-                            entry['token_count'] = new_token_count
-                            entry['timestamp'] = new_timestamp
-                            entry['Exemption'] = current_exemption
-                            found = True
-                            break
-                        
-                    if found:
-                        print(f"Message with timestamp {timestamp} edited successfully!")
-                        update_chat_history('system', command_input)  # Assuming this is where you want to log the command
-                    else:
-                        print(f"No message found with timestamp {timestamp}.")
-                except ValueError:
-                    print(f"Invalid edit command format: {edit_command}. Correct format is 'new content timestamp'")
 
 
 
@@ -1198,69 +1324,6 @@ def handle_commands(command_input, is_user=True):
             clear_percentage_except_pinned_and_exempt("CLEAR%70")
             token_counter = 0   
          
-def update_chat_history(role, content, token_count=None, image_path=None, exemption='None'):
-    global chat_history
-    global enable_unimportant_messages
-    global enable_important_messages
-    global mouse_position  # make sure to include this global if you want to use it in the function
-    global last_key  # make sure to include this global if you want to use it in the function
-    global last_command  # Use the global variable here
-
-    global ADD_UMSGS_TO_HISTORY
-    global ADD_IMSGS_TO_HISTORY
-
-    if is_unimportant_message(content) and not enable_unimportant_messages:
-        return
-    if is_important_message(content) and not enable_important_messages:
-        return
-    if is_unimportant_message(content) and not ADD_UMSGS_TO_HISTORY:
-        return
-    if is_important_message(content) and not ADD_IMSGS_TO_HISTORY:
-        return
-
-    current_time = datetime.datetime.now()
-    timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S')
-    modified_content = content
-    # Update mouse position from pyautogui with error handling
-    # Acquire lock before accessing mouse_position
-    with mouse_position_lock:
-        try:
-            current_position = pyautogui.position()
-            mouse_position = {"x": current_position.x, "y": current_position.y}
-        except Exception as e:
-            print(f"Error getting mouse position: {e}")
-
-    # Prepare the dictionary entry for the chat history
-    history_entry = {
-        "timestamp": timestamp,
-        "role": role,
-        "token_count": token_count,
-        "Exemption": exemption,
-        "last_key": last_key,  # Add this line to include the last key press
-        "mouse_position": mouse_position,  # Add this line to include the current mouse position
-        "last_command": last_command,  # Add last_command to the history entry
-    }
-
-    # If an image path is provided, encode the image and add to the history entry
-    if image_path:
-        base64_image = encode_image_to_base64(image_path)
-        history_entry["content"] = {"type": "image", "data": base64_image}
-        # Manage the number of images in the chat history
-        manage_image_history(base64_image)        
-    else:
-        history_entry["content"] = {"type": "text", "text": content}
-
-
-    # Append the history entry to the chat history
-    chat_history.append(history_entry)
-    last_command = None  # Reset last_command after updating chat history
-    # Check and remove messages that are older than the decay time
-    if CHECK_UMSGS_DECAY or CHECK_IMSGS_DECAY:
-        chat_history = [
-            entry for entry in chat_history 
-            if not (CHECK_UMSGS_DECAY and is_unimportant_message(entry['content']) and (current_time - datetime.datetime.strptime(entry['timestamp'], '%Y-%m-%d %H:%M:%S')).total_seconds()/60 > UMSGS_DECAY)
-            and not (CHECK_IMSGS_DECAY and is_important_message(entry['content']) and (current_time - datetime.datetime.strptime(entry['timestamp'], '%Y-%m-%d %H:%M:%S')).total_seconds()/60 > IMGS_DECAY)
-        ]
 
 
 def display_message(role, content, token_count=None, include_command=False):
@@ -1370,15 +1433,17 @@ def initiate_and_handoff():
     init_handoff_in_progress = True
 
     try:
+        # Check if the init prompt is already in the chat history
         if not any(entry['content'].startswith(f'Pinned Init summary: {init_prompt}') for entry in chat_history):
             timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            #chat_history.append({"timestamp": timestamp, 'role': 'user', 'content': f'Pinned Init summary: {init_prompt}'})
-            #display_message('user', f'Pinned Init summary: {init_prompt}')
-            #display_message("system", f"INIT: {init_prompt}")
+            init_message = f'Pinned Init summary: {init_prompt}'
+            # Update the chat history with the init message and the Init exemption
+            update_chat_history("system", init_message, exemption='Init')
             response_text = send_prompt_to_chatgpt(init_prompt)
-            #send_prompt_to_chatgpt(response_text)
+            # Optionally process the response_text further as needed
     except openai.error.InvalidRequestError as e:
         print(f"Error during initiation: {e}")
+
 
 
     init_handoff_in_progress = False
