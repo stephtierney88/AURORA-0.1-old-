@@ -75,7 +75,7 @@ MAX_IMAGES_IN_HISTORY = 3  # Global variable for the maximum number of images to
 IMGS_DECAY = 200 # Setting the default decay time to 3 minutes for important messages
 UMSGS_DECAY = 1.175 # Setting the default decay time to 3 minutes for unimportant messages
 # Time interval between screenshots (in seconds)
-time_interval = 25.1
+time_interval = 21.1
 
 text_count = 0
 image_or_other_count = 0
@@ -153,7 +153,7 @@ def audio_callback(indata, frames, time_info, status):
                     model="whisper-1",
                     file=open(temp_file.name, "rb")
                 )
-            print("OpenAI Response: ", response)     
+            print("My Response: ", response)     
             
             #os.unlink(temp_file.name)
             
@@ -161,11 +161,12 @@ def audio_callback(indata, frames, time_info, status):
             transcribed_text = response['text']
             
             # Send the transcribed text to ChatGPT
-            chatbot_response = send_prompt_to_chatgpt(transcribed_text)
+            #chatbot_response = send_prompt_to_chatgpt(transcribed_text)
             
             # Process the ChatGPT response
-            send_prompt_to_chatgpt(chatbot_response)
-            
+            #send_prompt_to_chatgpt(chatbot_response)
+            send_prompt_to_chatgpt(transcribed_text)
+
             audio_buffer.clear()  
     else:
         audio_buffer.extend(indata.tolist())
@@ -296,10 +297,11 @@ def send_prompt_to_chatgpt(prompt, image_path=None, image_timestamp=None):
             messages.append({
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": "What’s in this image please be short and concise? How many images are in this conversation so far?"},  # Use your specific prompt if needed
+                    {"type": "text", "text": "What’s in this image please be short and concise? What images & text are in this conversation so far?"},  # Use your specific prompt if needed
                     {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}",
-                 "detail": image_detail}}
-                ]
+                    #{"type": "image_url", "image_url":  f"data:image/png;base64,{base64_image}",
+                 "detail": image_detail}
+            }]
             })
             print(f"In send_prompt_to_chatgpt, Before user update_chat_history, Image Timestamp: {image_timestamp}")
             # Add the image data to chat history using update_chat_history
@@ -473,6 +475,7 @@ def update_chat_history(role, content, token_count=None, image_path=None, exempt
         "detail": image_detail,
         #"timestamp": image_timestamp  # Include timestamp here
     }
+        chat_history.append(history_entry)
         manage_image_history(base64_image, image_timestamp=image_timestamp)  # Manage the image history        
     else:
         history_entry["content"] = {"type": "text", "text": content_with_timestamp}
@@ -1768,7 +1771,7 @@ def take_screenshot():
         print(f"Screenshot Timestamp: {image_timestamp}")
         # Now, we send the prompt and include the screenshot file path
         #send_prompt_to_chatgpt("Here's a screenshot of my entire screen. Lets play Pokemon Blue in the VBA emulator. :3 We will play with individual button presses. Please simply reply to screenshots with only a command. VKPAG:click for example. If you need help, or have questions then ask away, but always be concise. with one or a short series set of individual button presses in response to each image. images will only update after a response is obtain from here. Display is 1920 X 1080 Landscape. ie click on folder/app called at mouse position x, y via move,x,y; leftclick; x,y select open keys in VBA emulator are Up: Up Arrow Please pretend like there is a parser listening for key commands and mouse commands the format from handle_commands of VKPAG:(PYAUTOGUI KEYBOARD/mouse commands, arguments);  VKPAG:hold_shift,1.5;move(100,200); rightClick(100,200); click(100,200)", screenshot_file_path)
-        send_prompt_to_chatgpt("please respond only with:'VKPAG:move(32,34);move(300,600)'", screenshot_file_path, image_timestamp)
+        send_prompt_to_chatgpt("please respond '", screenshot_file_path, image_timestamp)
 
         #auto_prompt_response = send_prompt_to_chatgpt("meow ")
         #send_prompt_to_chatgpt(auto_prompt_response)
