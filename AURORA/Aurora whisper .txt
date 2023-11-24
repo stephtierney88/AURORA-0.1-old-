@@ -207,7 +207,7 @@ is_known_command_prefixes = [
     'CLEAR', 'edit msgs', 'REMOVE_MSGS', 'DELETE_MSG:', 'SAVEPINNEDINIT',
     'SAVEPINNEDHANDOFF', 'SAVEEXEMPTIONS', 'SAVE PINS', 'SAVE ALL PINS',
     'HELP_VISIBILITY', 'HELP', 'hide', 'toggle', 'TOGGLE_SKIP_COMMANDS',
-    'DISPLAYHISTORY', 'DHISTORY', 'VKPAG:'  # ... add any other command identifiers you need
+    'DISPLAYHISTORY', 'DHISTORY', 'SAVECH', 'VKPAG:'  # ... add any other command identifiers you need
     # Note: Make sure all prefixes are unique and not a subset of another prefix,
     # otherwise, it may cause issues in recognizing commands accurately.
 ]
@@ -381,29 +381,30 @@ def send_prompt_to_chatgpt(prompt, image_path=None, image_timestamp=None):
             print(f"Message: {response.text}")
             return None
 
-def manage_image_history(new_image_base64, image_timestamp=None):
-    global chat_history
-    global MAX_IMAGES_IN_HISTORY
-    current_time = datetime.datetime.now()
-    timestamp = current_time
-    with image_history_lock: 
-        # Remove any existing entry of the same image
-        chat_history = [entry for entry in chat_history if entry['content']['type'] != 'image' or entry['content']['data'] != new_image_base64]
-
-        # Ensure all image entries have a timestamp
-        for entry in chat_history:
-            if entry['content']['type'] == 'image' and 'timestamp' not in entry:
-                entry['timestamp'] = image_timestamp if image_timestamp is not None else timestamp
-
-        # Filter out entries that are images
-        image_entries = [entry for entry in chat_history if entry['content']['type'] == 'image']
-
-        # If the limit is exceeded or reached, remove the oldest image(s)
-        while len(image_entries) > MAX_IMAGES_IN_HISTORY:
-            # Find the oldest image based on timestamp
-            oldest_image_entry = min(image_entries, key=lambda x: x['timestamp'])
-            chat_history.remove(oldest_image_entry)
-            image_entries.remove(oldest_image_entry)
+#def manage_image_history(new_image_base64, image_timestamp=None):
+ #   global chat_history
+ #   global MAX_IMAGES_IN_HISTORY
+ #   current_time = datetime.datetime.now()
+ #   timestamp = current_time
+ #   with image_history_lock: 
+ #       # Remove any existing entry of the same image
+ #       chat_history = [entry for entry in chat_history if entry['content']['type'] != 'image' or entry['content']['data'] != new_image_base64]
+#
+ #       # Ensure all image entries have a timestamp
+ #       for entry in chat_history:
+ #           if entry['content']['type'] == 'image' and 'timestamp' not in entry:
+ #               entry['timestamp'] = image_timestamp if image_timestamp is not None else timestamp
+#
+ #       # Filter out entries that are images
+ #       image_entries = [entry for entry in chat_history if entry['content']['type'] == 'image']
+ #       print(f"image entries so far: {image_entries}")
+ #       print(f"Max Images: {MAX_IMAGES_IN_HISTORY}")
+ #       # If the limit is exceeded or reached, remove the oldest image(s)
+ #       while len(image_entries) > MAX_IMAGES_IN_HISTORY:
+ #           # Find the oldest image based on timestamp
+ #           oldest_image_entry = min(image_entries, key=lambda x: x['timestamp'])
+ #           chat_history.remove(oldest_image_entry)
+ #           image_entries.remove(oldest_image_entry)
 
         # Add the new image to the chat history
         #chat_history.append({"role": "user", "content": {"type": "image", "data": new_image_base64, 
@@ -415,6 +416,33 @@ def manage_image_history(new_image_base64, image_timestamp=None):
     #if new_image not in chat_history:
         # Add the new image entry to the chat history
      #   chat_history.append(new_image)
+
+def manage_image_history(new_image_base64, image_timestamp=None):
+    global chat_history
+    global MAX_IMAGES_IN_HISTORY
+
+    # Add the new image to chat_history
+    new_image_entry = {
+        "content": {
+            "type": "image",
+            "data": new_image_base64
+        },
+        "timestamp": image_timestamp if image_timestamp else datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }
+    chat_history.append(new_image_entry)
+
+    # Filter to get only image entries
+    image_entries = [entry for entry in chat_history if entry['content']['type'] == 'image']
+
+    # If the limit is exceeded, remove the oldest image(s)
+    while len(image_entries) > MAX_IMAGES_IN_HISTORY:
+        oldest_image_entry = min(image_entries, key=lambda x: x['timestamp'])
+        chat_history.remove(oldest_image_entry)
+        image_entries.remove(oldest_image_entry)
+
+    # For debugging
+    print(f"Updated image entries: {image_entries}")
+
 def update_chat_history(role, content, token_count=None, image_path=None, exemption='None', image_timestamp=None ):
     global chat_history
     global enable_unimportant_messages
@@ -476,10 +504,57 @@ def update_chat_history(role, content, token_count=None, image_path=None, exempt
         #"timestamp": image_timestamp  # Include timestamp here
     }
         chat_history.append(history_entry)
-        manage_image_history(base64_image, image_timestamp=image_timestamp)  # Manage the image history        
+        # Iterate over chat history and check for image entries
+        for entry in chat_history:
+            if entry['content']['type'] == 'image':
+                image_data = entry['content']['data']
+
+                # Extract the specified character ranges from the base64 string
+                range1 = image_data[33:55]  # Characters 33 to 55
+                range2 = image_data[115:119]  # Characters 115 to 119
+
+                # Print the extracted ranges
+                print(f"Range 33-55: {range1}")
+                print(f"Range 115-119: {range2}")
+                # Counters for image content types and image data entries
+        image_content_count = 0
+        image_data_count = 0
+
+        # Iterate over chat history to count image content types and image data entries
+        for entry in chat_history:
+            if entry['content']['type'] == 'image':
+                image_content_count += 1
+                if 'data' in entry['content'] and entry['content']['data']:
+                    image_data_count += 1
+
+        # Print the counts
+        print(f"Number of 'content type = image' entries: {image_content_count}")
+        print(f"Number of 'content data' entries: {image_data_count}")
+        #print(chat_history)        
+        manage_image_history(base64_image, image_timestamp=image_timestamp)  # Manage the image history
+        for entry in chat_history:
+            if entry['content']['type'] == 'image':
+                image_data2 = entry['content']['data']
+
+                # Extract the specified character ranges from the base64 string
+                range11 = image_data2[33:55]  # Characters 33 to 55
+                range22 = image_data2[115:119]  # Characters 115 to 119
+
+                # Print the extracted ranges
+                print(f"Range1 33-55: {range11}")
+                print(f"Range2 115-119: {range22}")
+                # Counters for image content types and image data entries
+        image_content_count2 = 0
+        image_data_count2 = 0
+        for entry in chat_history:
+            if entry['content']['type'] == 'image':
+                image_content_count2 += 1
+                if 'data' in entry['content'] and entry['content']['data']:
+                    image_data_count2 += 1
     else:
         history_entry["content"] = {"type": "text", "text": content_with_timestamp}
         chat_history.append(history_entry)
+        print("ELSE IMAGE")
 
 
     # Append the history entry to the chat history
@@ -1272,6 +1347,11 @@ def handle_commands(command_input, is_user=True):
         #    else:
         #        print("No messages in the chat history.")    
         #                # If none of the commands match
+        if command_input.startswith("SAVECH"):
+            save_chat_history_to_file(chat_history, 'chat_history')
+            display_message("system", "Chat history saved to chat_history.txt.")
+            return
+        
         if command_input.startswith("DHISTORY"):
                 if chat_history:
                     for entry in chat_history:
@@ -1289,8 +1369,10 @@ def handle_commands(command_input, is_user=True):
                             content_type = content.get('type')
                             if content_type == 'text':
                                 message = content.get('text', 'No text content')[:15]
-                            elif content_type == 'image':
+                            if content_type == 'image':
+                                print("image found")
                                 image_data = content.get('data', '')
+                                print("DATA")
                                 message = f"Image Data: {image_data[:15]}..." if image_data else "Image Data: Missing or empty 'data' key"
                             else:
                                 message = f'[Other content type: {content_type}]'
@@ -1319,7 +1401,7 @@ def handle_commands(command_input, is_user=True):
         # Urgent check: If token_counter has reached or exceeded token_limit
         elif token_counter >= token_limit:
             print("Token limit reached! Chat history saved and non-pinned messages will be cleared.")
-            save_chat_history_to_file()
+            #save_chat_history_to_file()
             # Function to clear non-pinned messages
             clear_percentage_except_pinned_and_exempt("CLEAR%70")
             token_counter = 0   
@@ -1342,11 +1424,88 @@ def handle_commands(command_input, is_user=True):
         # Urgent check: If token_counter has reached or exceeded token_limit
         elif token_counter >= token_limit:
             print("Token limit reached! Chat history saved and non-pinned messages will be cleared.")
-            save_chat_history_to_file()
+            #save_chat_history_to_file()
+            save_chat_history_to_file(chat_history, 'chat_history')
             # Function to clear non-pinned messages
             clear_percentage_except_pinned_and_exempt("CLEAR%70")
             token_counter = 0   
          
+def write_content_to_file(content, file_name):
+        with open(file_name, "w") as f:
+            f.write(content)
+        print(f"Content saved to {file_name}")
+
+#def save_chat_history_to_file(chat_history, file_name):
+#        # Get the current time and format it for the file name
+#    current_time = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+#    # Construct the file name with the current time
+#    file_nametime = f"{file_name}_{current_time}.txt"
+#    with open(file_nametime, 'w') as file:
+#        for entry in chat_history:
+#            file.write(str(entry) + '\n')
+#    print(f"Chat history saved to {file_name}")        
+#def save_chat_history_to_file(chat_history, file_name):
+#    """
+#    Saves the chat history to a file, including details for each entry.
+#    """
+#    current_time = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+#    file_nametime = f"{file_name}_{current_time}.txt"
+#
+#    with open(file_nametime, 'w') as file:
+#        for entry in chat_history:
+#            timestamp = entry.get('timestamp', 'No timestamp')
+#            role = entry.get('role', 'No role')
+#            token_count = entry.get('token_count', 'N/A')
+#            last_key = entry.get('last_key', 'N/A')
+#            mouse_position = entry.get('mouse_position', 'N/A')
+#            last_command = entry.get('last_command', 'N/A')
+#
+#            content = entry.get('content', {})
+#            message = 'No content'
+#
+#            if isinstance(content, dict):
+#                content_type = content.get('type')
+#                if content_type == 'text':
+#                    message = content.get('text', 'No text content')
+#                if content_type == 'image':
+#                    image_data = content.get('data', '')
+#                    message = f"Image Data: {image_data}" if image_data else "Image Data: Missing or empty 'data' key"
+#                else:
+#                    message = f'[Other content type: {content_type}]'
+#
+#            file.write(f"{timestamp} - {role}: {message}\n\n")
+#            file.write(f"Token Count: {token_count}, Last Key: {last_key}, Mouse Position: {mouse_position}, Last Command: {last_command}\n")
+#
+#    print(f"Chat history saved to {file_nametime}")
+
+def save_chat_history_to_file(chat_history, file_name):
+    current_time = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    file_nametime = f"{file_name}_{current_time}.txt"
+
+    with open(file_nametime, 'w') as file:
+        for entry in chat_history:
+            # Extract information
+            timestamp = entry.get('timestamp', 'No timestamp')
+            role = entry.get('role', 'No role')
+            content = entry.get('content', {})
+            content_type = content.get('type', 'No type')
+
+            # Write basic info
+            file.write(f"Timestamp: {timestamp}\nRole: {role}\nType: {content_type}\n")
+
+            # Handle different content types
+            if content_type == 'text':
+                file.write(f"Message: {content.get('text', 'No text content')}\n\n")
+            elif content_type == 'image':
+                # For image, either write the data or a placeholder
+                image_data = content.get('data', 'No image data')
+                file.write(f"Image Data: {image_data[:50]}... [truncated]\n\n")  # Truncate for preview
+            else:
+                file.write(f"Other Content: {content}\n\n")
+
+    print(f"Chat history saved to {file_nametime}")
+
+
 
 
 def display_message(role, content, token_count=None, include_command=False):
@@ -1437,10 +1596,6 @@ def count_tokens_in_history(chat_history):
     return f"{tokens_used} out of {CONTEXT_LENGTH} available"
 
 
-def write_content_to_file(content, file_name):
-        with open(file_name, "w") as f:
-            f.write(content)
-        print(f"Content saved to {file_name}")
 
 def initiate_and_handoff():
     global init_handoff_in_progress
@@ -1521,31 +1676,31 @@ def clear_chat_history(percentage):
 
 
 
-def save_chat_history_to_file():
-    """
-    Save the current chat history to a file.
-    The filename will be formatted as 'chat_history_PrimaryAIName_date_time.txt',
-    where 'PrimaryAIName' is replaced with the name of the primary AI,
-    'date' is replaced with the current date, and 'time' is replaced with the current time.
-    """
-    # Get the current date and time
-    now = datetime.datetime.now()
-    
-    # Format the date and time as strings
-    date_str = now.strftime('%Y-%m-%d')
-    time_str = now.strftime('%H-%M-%S')
-    
-    # Create the filename
-    filename = f"chat_history_Aurora_{date_str}_{time_str}.txt"
-    
-    # Write the chat history to the file
-    with open(filename, 'w') as file:
-        for entry in chat_history:
-            role = entry['role']
-            content = entry['content']
-            file.write(f"{role}: {content}\n")
-                
-    print(f"Chat history saved to {filename}")
+##def save_chat_history_to_file_old():
+ #   """
+ #   Save the current chat history to a file.
+ #   The filename will be formatted as 'chat_history_PrimaryAIName_date_time.txt',
+ #   where 'PrimaryAIName' is replaced with the name of the primary AI,
+ #   'date' is replaced with the current date, and 'time' is replaced with the current time.
+ #   """
+ #   # Get the current date and time
+ #   now = datetime.datetime.now()
+ #   
+ #   # Format the date and time as strings
+ #   date_str = now.strftime('%Y-%m-%d')
+ #   time_str = now.strftime('%H-%M-%S')
+ #   
+ #   # Create the filename
+ #   filename = f"chat_history_Aurora_{date_str}_{time_str}.txt"
+ #   
+ #   # Write the chat history to the file
+ #   with open(filename, 'w') as file:
+ #       for entry in chat_history:
+ #           role = entry['role']
+ #           content = entry['content']
+ #           file.write(f"{role}: {content}\n")
+ #               
+ #   print(f"Chat history saved to {filename}")
 
 def check_and_save_chat_history():
     """
@@ -1557,7 +1712,8 @@ def check_and_save_chat_history():
     # Check if the token counter exceeds the limit
     if token_counter > token_limit:
         print("Token limit reached. Saving chat history to file...")
-        save_chat_history_to_file()  # Save the chat history to a text file
+        #save_chat_history_to_file()  # Save the chat history to a text file
+        save_chat_history_to_file(chat_history, 'chat_history')
         token_counter = 0  # Reset the token counter
 
 
