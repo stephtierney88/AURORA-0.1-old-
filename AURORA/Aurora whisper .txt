@@ -421,15 +421,22 @@ def manage_image_history(new_image_base64, image_timestamp=None):
     global chat_history
     global MAX_IMAGES_IN_HISTORY
 
-    # Add the new image to chat_history
-    new_image_entry = {
-        "content": {
-            "type": "image",
-            "data": new_image_base64
-        },
-        "timestamp": image_timestamp if image_timestamp else datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    }
-    chat_history.append(new_image_entry)
+    # Check if the image already exists in the chat history
+    image_already_exists = any(
+        entry['content']['type'] == 'image' and entry['content']['data'] == new_image_base64
+        for entry in chat_history
+    )
+
+    # Add the new image to chat_history only if it's not a duplicate
+    if not image_already_exists:
+        new_image_entry = {
+            "content": {
+                "type": "image",
+                "data": new_image_base64
+            },
+            "timestamp": image_timestamp if image_timestamp else datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        chat_history.append(new_image_entry)
 
     # Filter to get only image entries
     image_entries = [entry for entry in chat_history if entry['content']['type'] == 'image']
@@ -442,6 +449,7 @@ def manage_image_history(new_image_base64, image_timestamp=None):
 
     # For debugging
     print(f"Updated image entries: {image_entries}")
+
 
 def update_chat_history(role, content, token_count=None, image_path=None, exemption='None', image_timestamp=None ):
     global chat_history
