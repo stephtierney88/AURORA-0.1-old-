@@ -66,16 +66,17 @@ last_command = None
 screen_width, screen_height = pyautogui.size()
 #image_detail =  "high"   # "low" or depending on your requirement
 image_detail =  "low"   # "high" or depending on your requirement
+latest_image_detail = "high"  # "high" for the latest image, "low" for older images
 image_timestamp = None
 last_key = None  # Initialize the global variable
 mouse_position = {"x": 0, "y": 0}  # Initialize as a dictionary
 
 MAX_IMAGES_IN_HISTORY = 3  # Global variable for the maximum number of images to retain
 
-IMGS_DECAY = 200 # Setting the default decay time to 3 minutes for important messages
+IMGS_DECAY = 2 # Setting the default decay time to 3 minutes for important messages
 UMSGS_DECAY = 1.175 # Setting the default decay time to 3 minutes for unimportant messages
 # Time interval between screenshots (in seconds)
-time_interval = 21.1
+time_interval = 9930.1
 
 text_count = 0
 image_or_other_count = 0
@@ -106,9 +107,9 @@ audio_buffer = []
 
 
 # Additional global variables
-AUTO_PROMPT_INTERVAL = 9  # Auto-prompt every 30 seconds, but you can change this value
+AUTO_PROMPT_INTERVAL = 9  # Auto-prompt every 30 seconds, but you can change this value # Default auto message depreciated in favor of send_screenshot
 enable_auto_prompt = False
-auto_prompt_message = "Auto Prompt."  # Default auto message 
+auto_prompt_message = "Auto Prompt."  # Default auto message depreciated in favor of send_screenshot which also has text... 
 
 
 # Function to run the audio stream
@@ -244,11 +245,12 @@ def upload_image_and_get_file_id(image_path):
 
 
 # Function to send prompt to ChatGPT
-def send_prompt_to_chatgpt(prompt, image_path=None, image_timestamp=None):
+def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp=None, exemption=None):
     global token_counter
     global init_handoff_in_progress
     global text_count
     global image_or_other_count
+    global image_detail
 
     current_time = datetime.datetime.now()
     timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S')
@@ -268,7 +270,7 @@ def send_prompt_to_chatgpt(prompt, image_path=None, image_timestamp=None):
         ]
                 # Check for pinned messages
                 # Add a default pinned message if none exists
-        if not any(entry.get('Exemption') in ['Pinned', 'Init', 'Handoff', 'Special'] for entry in chat_history):
+        if not any(entry.get('Exemption') in ['Pinned', 'Handoff', 'Special'] for entry in chat_history):
             default_pinned_message = "Exemption: PINNED:PRIORITY GOALS: [Editable area for priority goals (10)] APRIORITY GOALS: [Editable area for apriority goals] NOTES: [Editable area for notes]"
             update_chat_history("system", {'type': 'text', 'text': default_pinned_message}, exemption='Pinned')
 
@@ -290,8 +292,12 @@ def send_prompt_to_chatgpt(prompt, image_path=None, image_timestamp=None):
                     "role": entry['role'],
                     "content": entry['content']['text']
                 })
+        # Add the current prompt with a timestamp to messages
+        formatted_prompt = f"[{timestamp}] {prompt}"    
         #Now, you would add the current prompt or image that's being processed.
         if image_path:
+            # Set the detail level for the latest image
+            image_detail = latest_image_detail
             # If an image path is provided, you process it here as you have done before.
             base64_image = encode_image_to_base64(image_path)
             messages.append({
@@ -304,18 +310,20 @@ def send_prompt_to_chatgpt(prompt, image_path=None, image_timestamp=None):
             }]
             })
             print(f"In send_prompt_to_chatgpt, Before user update_chat_history, Image Timestamp: {image_timestamp}")
+            # Reset the image detail level for older images
+            image_detail = "low"
             # Add the image data to chat history using update_chat_history
             update_chat_history("user", None, image_path=image_path, image_timestamp=image_timestamp)
         else:
         # Handle text prompts
-            update_chat_history("user", prompt)
-            messages.append({"role": "user", "content": prompt})
+            update_chat_history("user", prompt, exemption=exemption)
+            messages.append({"role": role, "content": formatted_prompt})
 
 
         # Construct the payload
         payload = {
-            "model": "gpt-4-vision-preview",
-            #"model": "gpt-3.5-turbo-1106",
+            #"model": "gpt-4-vision-preview",
+            "model": "gpt-3.5-turbo-1106",
             "messages": messages,
             "max_tokens": 1937,
             "temperature": 0.5
@@ -339,29 +347,11 @@ def send_prompt_to_chatgpt(prompt, image_path=None, image_timestamp=None):
             print("NYAN")
 
 
-           #        
-           # image_count = 0
-           # for entry in chat_history:
-           #     if entry['content']['type'] == 'image':
-           #         image_data = entry['content'].get('data', '')
-           #         timestamp = entry.get('timestamp', 'No timestamp')
-           #         if image_data:
-           #             # Skip the first 5 characters and then take a slice from the string
-           #             #middle_part = image_data[5:15]  # Adjust indices as needed
-           #             middle_part = image_data[85:95]  # Adjust indices as needed                        
-           #             end_part = image_data[106:110]  # Last 6 characters
-           #             print(f"Image {image_count} Timestamp: {timestamp}, Data Middle: {middle_part}, Data End: {end_part}...")
-           #         else:
-           #             print(f"Image {image_count} Timestamp: {timestamp}, Image Data: Missing or empty 'data' key")
-           #         image_count += 1
-
-
-
                 # Here you check if the AI's response is a command and handle it
             if is_command(ai_response):
                 handle_commands(ai_response, is_user=False)
             else:
-                if not is_important_message(prompt):
+                if not is_important_message(prompt, entry.get("Exemption")):
                     #update_chat_history("assistant", ai_response)
 
                      # Token counting and threshold checking
@@ -380,76 +370,6 @@ def send_prompt_to_chatgpt(prompt, image_path=None, image_timestamp=None):
             print(f"Error: {response.status_code}")
             print(f"Message: {response.text}")
             return None
-
-#def manage_image_history(new_image_base64, image_timestamp=None):
- #   global chat_history
- #   global MAX_IMAGES_IN_HISTORY
- #   current_time = datetime.datetime.now()
- #   timestamp = current_time
- #   with image_history_lock: 
- #       # Remove any existing entry of the same image
- #       chat_history = [entry for entry in chat_history if entry['content']['type'] != 'image' or entry['content']['data'] != new_image_base64]
-#
- #       # Ensure all image entries have a timestamp
- #       for entry in chat_history:
- #           if entry['content']['type'] == 'image' and 'timestamp' not in entry:
- #               entry['timestamp'] = image_timestamp if image_timestamp is not None else timestamp
-#
- #       # Filter out entries that are images
- #       image_entries = [entry for entry in chat_history if entry['content']['type'] == 'image']
- #       print(f"image entries so far: {image_entries}")
- #       print(f"Max Images: {MAX_IMAGES_IN_HISTORY}")
- #       # If the limit is exceeded or reached, remove the oldest image(s)
- #       while len(image_entries) > MAX_IMAGES_IN_HISTORY:
- #           # Find the oldest image based on timestamp
- #           oldest_image_entry = min(image_entries, key=lambda x: x['timestamp'])
- #           chat_history.remove(oldest_image_entry)
- #           image_entries.remove(oldest_image_entry)
-
-        # Add the new image to the chat history
-        #chat_history.append({"role": "user", "content": {"type": "image", "data": new_image_base64, 
-                                                         #"timestamp": image_timestamp
-                                                         #}})
-
-
-     # Add the new image to the chat history
-    #if new_image not in chat_history:
-        # Add the new image entry to the chat history
-     #   chat_history.append(new_image)
-
-def manage_image_history(new_image_base64, image_timestamp=None):
-    global chat_history
-    global MAX_IMAGES_IN_HISTORY
-
-    # Check if the image already exists in the chat history
-    image_already_exists = any(
-        entry['content']['type'] == 'image' and entry['content']['data'] == new_image_base64
-        for entry in chat_history
-    )
-
-    # Add the new image to chat_history only if it's not a duplicate
-    if not image_already_exists:
-        new_image_entry = {
-            "content": {
-                "type": "image",
-                "data": new_image_base64
-            },
-            "timestamp": image_timestamp if image_timestamp else datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        }
-        chat_history.append(new_image_entry)
-
-    # Filter to get only image entries
-    image_entries = [entry for entry in chat_history if entry['content']['type'] == 'image']
-
-    # If the limit is exceeded, remove the oldest image(s)
-    while len(image_entries) > MAX_IMAGES_IN_HISTORY:
-        oldest_image_entry = min(image_entries, key=lambda x: x['timestamp'])
-        chat_history.remove(oldest_image_entry)
-        image_entries.remove(oldest_image_entry)
-
-    # For debugging
-    print(f"Updated image entries: {image_entries}")
-
 
 def update_chat_history(role, content, token_count=None, image_path=None, exemption='None', image_timestamp=None ):
     global chat_history
@@ -473,13 +393,15 @@ def update_chat_history(role, content, token_count=None, image_path=None, exempt
 
     current_time = datetime.datetime.now()
     timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S')
+        # Prepend timestamp to the content for all messages
+    content_with_timestamp = f"[{timestamp}] {content}"
     #modified_content = content
     # Check if the message is a special type like PINNED, Init, or Special
-    if exemption in ['Pinned', 'Init', 'Special']:
-        # Format the message to include the timestamp
-        content_with_timestamp = f"[Timestamp: {timestamp}] {content}"
-    else:
-        content_with_timestamp = content
+    #if exemption in ['Pinned', 'Init', 'Handoff', 'Special']:
+    #    # Format the message to include the timestamp
+    #    content_with_timestamp = f"Timestamp: {timestamp}] {content}"
+    #else:
+    #    content_with_timestamp = content
 
     # Update mouse position from pyautogui with error handling
     # Acquire lock before accessing mouse_position
@@ -540,18 +462,7 @@ def update_chat_history(role, content, token_count=None, image_path=None, exempt
         print(f"Number of 'content data' entries: {image_data_count}")
         #print(chat_history)        
         manage_image_history(base64_image, image_timestamp=image_timestamp)  # Manage the image history
-        #for entry in chat_history:
-        #    if entry['content']['type'] == 'image':
-        #        image_data2 = entry['content']['data']
-#
-        #        # Extract the specified character ranges from the base64 string
-        #        range11 = image_data2[55:75]  # Characters 33 to 55
-        #        range22 = image_data2[75:100]  # Characters 115 to 119
-#
-        #        # Print the extracted ranges
-        #        print(f"Range1 55-75: {range11}")
-        #        print(f"Range2 75-100: {range22}")
-        #        # Counters for image content types and image data entries
+
         image_content_count2 = 0
         image_data_count2 = 0
         for entry in chat_history:
@@ -584,6 +495,41 @@ def update_chat_history(role, content, token_count=None, image_path=None, exempt
 
     print(f"At end of update_chat_history, Image Timestamp: {image_timestamp}")
 
+
+
+def manage_image_history(new_image_base64, image_timestamp=None):
+    global chat_history
+    global MAX_IMAGES_IN_HISTORY
+
+    # Check if the image already exists in the chat history
+    image_already_exists = any(
+        entry['content']['type'] == 'image' and entry['content']['data'] == new_image_base64
+        for entry in chat_history
+    )
+
+    # Add the new image to chat_history only if it's not a duplicate
+    if not image_already_exists:
+        new_image_entry = {
+            "content": {
+                "type": "image",
+                "data": new_image_base64
+            },
+            "timestamp": image_timestamp if image_timestamp else datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        chat_history.append(new_image_entry)
+
+    # Filter to get only image entries
+    image_entries = [entry for entry in chat_history if entry['content']['type'] == 'image']
+
+    # If the limit is exceeded, remove the oldest image(s)
+    while len(image_entries) > MAX_IMAGES_IN_HISTORY:
+        oldest_image_entry = min(image_entries, key=lambda x: x['timestamp'])
+        chat_history.remove(oldest_image_entry)
+        image_entries.remove(oldest_image_entry)
+
+
+    # For debugging
+    print(f"Updated image entries: {image_entries}")
 
 
 
@@ -653,7 +599,7 @@ def get_user_input(Always_=None, hide_input=None):
         return input("")
 
 
-def handle_commands(command_input, is_user=True):
+def handle_commands(command_input, is_user=True, exemption=None):
     global chat_history
     global disable_commands
     global REQUIRE_POWER_WORD
@@ -1329,10 +1275,10 @@ def handle_commands(command_input, is_user=True):
             print(f"Important messages decay check toggled to {'ON' if CHECK_IMSGS_DECAY else 'OFF'}.")
 
 
-        if not enable_unimportant_messages and is_unimportant_message(command_input, exemption=None):
+        if not enable_unimportant_messages and is_unimportant_message(command_input, exemption=exemption):
             return    
         
-        if not enable_important_messages and is_important_message(command_input, exemption=None):
+        if not enable_important_messages and is_important_message(command_input, exemption=exemption):
             return    
         
         if command_input.startswith('TOGGLE_SKIP_COMMANDS'):
@@ -1384,6 +1330,11 @@ def handle_commands(command_input, is_user=True):
                                 message = f"Image Data: {image_data[50:80]}..." if image_data else "Image Data: Missing or empty 'data' key"
                             else:
                                 message = f'[Other content type: {content_type}]'
+                        else:
+                        # Treat non-dictionary content as a text string
+                           message = str(content)[:80] + '...' if content else 'Empty content'
+                        # Content is not a dictionary
+                        #    message = f'Content type is "text" but content is not a dictionary. Content: {str(content)[:50]}...'
 
                         print(f"{timestamp} - {role}: {message}")
                         print(f"Token Count: {token_count}, Last Key: {last_key}, Mouse Position: {mouse_position}, Last Command: {last_command}")
@@ -1574,19 +1525,13 @@ class ChatMessage:
             image_info += f" IP {self.image_path}"
         return f"{self.role} {self.name} {self.content}{image_info} TC {self.token_count} {self.last_command} {self.last_key}: {self.mouse_position} {self.timestamp}"
 
-def is_important_message(content, exemption=None):
-    # Check if the message content or its exemption status is important
-    if isinstance(content, dict):
-        if content.get('type') == 'text' and isinstance(content.get('text'), str):
-            text = content['text']
-            return (text.startswith('Pinned Init summary') or 
-                    text.startswith('Pinned Handoff context') or 
-                    text.startswith('Exemption')) or exemption in ['Pinned', 'Init', 'Special', 'Handoff']
-    elif isinstance(content, str):
-        return (content.startswith('Pinned Init summary') or 
-                content.startswith('Pinned Handoff context') or 
-                content.startswith('Exemption')) or exemption in ['Pinned', 'Init', 'Special', 'Handoff']
-    return False
+def is_important_message(content, exemption):
+    # Define a set of important exemption values
+    important_exemptions = {'Pinned', 'Init', 'Special', 'Handoff'}
+
+    # Check if the exemption value is in the set of important exemptions
+    return exemption in important_exemptions
+
 
 def is_unimportant_message(content, exemption=None):
     # Check if the message content or its exemption status is unimportant
@@ -1613,10 +1558,10 @@ def initiate_and_handoff():
         # Check if the init prompt is already in the chat history
         if not any(entry['content'].startswith(f'Pinned Init summary: {init_prompt}') for entry in chat_history):
             timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            init_message = f'Pinned Init summary: {init_prompt}'
+           # init_message = f'Pinned Init summary: {init_prompt}'
             # Update the chat history with the init message and the Init exemption
-            update_chat_history("system", init_message, exemption='Init')
-            response_text = send_prompt_to_chatgpt(init_prompt)
+            #update_chat_history("system", init_message, exemption='Init')
+            response_text = send_prompt_to_chatgpt(init_prompt, role="system", exemption='Init')
             # Optionally process the response_text further as needed
     except openai.error.InvalidRequestError as e:
         print(f"Error during initiation: {e}")
