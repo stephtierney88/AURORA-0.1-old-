@@ -64,6 +64,7 @@ hide_input = None
 global last_command
 last_command = None
 screen_width, screen_height = pyautogui.size()
+MAX_IMAGES_IN_HISTORY = 3  # Global variable for the maximum number of images to retain
 #image_detail =  "high"   # "low" or depending on your requirement
 image_detail =  "low"   # "high" or depending on your requirement
 latest_image_detail = "high"  # "high" for the latest image, "low" for older images
@@ -71,12 +72,13 @@ image_timestamp = None
 last_key = None  # Initialize the global variable
 mouse_position = {"x": 0, "y": 0}  # Initialize as a dictionary
 
-MAX_IMAGES_IN_HISTORY = 3  # Global variable for the maximum number of images to retain
-
-IMGS_DECAY = 2 # Setting the default decay time to 3 minutes for important messages
-UMSGS_DECAY = 1.175 # Setting the default decay time to 3 minutes for unimportant messages
-# Time interval between screenshots (in seconds)
-time_interval = 9930.1
+global MAX_IMPORTANT_MESSAGES
+global MAX_UNIMPORTANT_MESSAGES
+MAX_IMPORTANT_MESSAGES = 50  # Example value
+MAX_UNIMPORTANT_MESSAGES = 100  # Example value
+IMGS_DECAY = 9999 # Setting the default decay time to 3 minutes for important messages
+UMSGS_DECAY = 1.25 # Setting the default decay time to 3 minutes for unimportant messages
+time_interval = 3000.1 # Time interval between screenshots (in seconds)
 
 text_count = 0
 image_or_other_count = 0
@@ -381,14 +383,18 @@ def update_chat_history(role, content, token_count=None, image_path=None, exempt
     global ADD_UMSGS_TO_HISTORY
     global ADD_IMSGS_TO_HISTORY
     print(f"update_chat_history, Image Timestamp: {image_timestamp}")
-    if is_unimportant_message(content, exemption=exemption) and not enable_unimportant_messages:
+
+    important_exemptions = {'Pinned', 'Init', 'Special', 'Handoff'}
+    is_important = exemption in important_exemptions
+
+    if not is_important and not enable_unimportant_messages:
         return
-    if is_important_message(content, exemption=exemption) and not enable_important_messages:
+    if is_important and not enable_important_messages:
         return
 
-    if is_unimportant_message(content, exemption=exemption) and not ADD_UMSGS_TO_HISTORY:
+    if not is_important and not ADD_UMSGS_TO_HISTORY:
         return
-    if is_important_message(content, exemption=exemption) and not ADD_IMSGS_TO_HISTORY:
+    if is_important and not ADD_IMSGS_TO_HISTORY:
         return
 
     current_time = datetime.datetime.now()
@@ -427,6 +433,7 @@ def update_chat_history(role, content, token_count=None, image_path=None, exempt
     if image_path:
         base64_image = encode_image_to_base64(image_path)
         history_entry["timestamp"] = image_timestamp
+        history_entry["Exemption"] = "Image"  # Set exemption specifically for images
         history_entry["content"] = {
         "type": "image",
         "data": base64_image,
@@ -478,17 +485,19 @@ def update_chat_history(role, content, token_count=None, image_path=None, exempt
 
     # Append the history entry to the chat history
     last_command = None  # Reset last_command after updating chat history
-    # Check and remove messages that are older than the decay time
+    # Check and remove messages based on decay time and importance
     if CHECK_UMSGS_DECAY or CHECK_IMSGS_DECAY:
         chat_history = [
             entry for entry in chat_history
             if not (
                 CHECK_UMSGS_DECAY 
-                and is_unimportant_message(entry['content'], exemption=entry.get("Exemption")) 
+                and entry.get("Exemption") != "Image"  # Exclude image entries
+                and not (entry.get("Exemption") in important_exemptions)
                 and (current_time - datetime.datetime.strptime(entry['timestamp'], '%Y-%m-%d %H:%M:%S')).total_seconds()/60 > UMSGS_DECAY
             ) and not (
                 CHECK_IMSGS_DECAY 
-                and is_important_message(entry['content'], exemption=entry.get("Exemption")) 
+                and entry.get("Exemption") != "Image"  # Exclude image entries
+                and (entry.get("Exemption") in important_exemptions)
                 and (current_time - datetime.datetime.strptime(entry['timestamp'], '%Y-%m-%d %H:%M:%S')).total_seconds()/60 > IMGS_DECAY
             )
         ]
@@ -1320,16 +1329,20 @@ def handle_commands(command_input, is_user=True, exemption=None):
                         message = 'No content'
 
                         if isinstance(content, dict):
-                            content_type = content.get('type')
-                            if content_type == 'text':
-                                message = content.get('text', 'No text content')[:15]
-                            if content_type == 'image':
-                                print("image found")
-                                image_data = content.get('data', '')
-                                print("DATA")
-                                message = f"Image Data: {image_data[50:80]}..." if image_data else "Image Data: Missing or empty 'data' key"
-                            else:
-                                message = f'[Other content type: {content_type}]'
+                                content_type = content.get('type')
+                                if content_type == 'text':
+                                    message = content.get('text', 'No text content')[:15] + '...'
+                                elif content_type == 'image':
+                                    # Handling for images
+                                    print("image found")
+                                    image_data = content.get('data', '')
+                                    print("DATA")
+                                    message = f"Image Data: {image_data[50:80]}..." if image_data else "Image Data: Missing or empty 'data' key"
+                                    #pass
+                                else:
+                                    # If the content type is not recognized
+                                    message = f'[Other content type: {content_type}]'                        
+
                         else:
                         # Treat non-dictionary content as a text string
                            message = str(content)[:80] + '...' if content else 'Empty content'
