@@ -18,7 +18,7 @@ import requests
 import schedule
 import sounddevice as sd
 import tiktoken
-from PIL import Image, ImageGrab, ImageDraw
+from PIL import Image, ImageGrab, ImageDraw, ImageFont
 import random
 from threading import Lock
 from scipy.io.wavfile import write
@@ -27,6 +27,7 @@ import ffmpeg
 from getpass import getpass
 import json
 import io
+import math
 
 API_KEY=""
 POWER_WORD = ""
@@ -79,6 +80,11 @@ MAX_UNIMPORTANT_MESSAGES = 100  # Example value
 IMGS_DECAY = 9999 # Setting the default decay time to 3 minutes for important messages
 UMSGS_DECAY = 1.25 # Setting the default decay time to 3 minutes for unimportant messages
 time_interval = 3000.1 # Time interval between screenshots (in seconds)
+
+cursor_size = 20  # Size of the cursor representation
+enable_human_like_click = False
+circle_duration = 0.5  # Duration for the circular motion in seconds
+circle_radius = 10  # Radius of the circular motion
 
 text_count = 0
 image_or_other_count = 0
@@ -607,6 +613,15 @@ def get_user_input(Always_=None, hide_input=None):
     else:
         return input("")
 
+# Function for human-like click
+def human_like_click(x_pixel, y_pixel):
+    start_time = time.time()
+    while time.time() - start_time < circle_duration:
+        angle = ((time.time() - start_time) / circle_duration) * 2 * math.pi
+        x = x_pixel + math.cos(angle) * circle_radius
+        y = y_pixel + math.sin(angle) * circle_radius
+        pyautogui.moveTo(x, y, duration=0.1)
+    pyautogui.click(x_pixel, y_pixel)
 
 def handle_commands(command_input, is_user=True, exemption=None):
     global chat_history
@@ -801,10 +816,12 @@ def handle_commands(command_input, is_user=True, exemption=None):
 
 
                     elif cmd == "click" or cmd == "leftclick":
-                        # Default to 1 click if no arguments
                         count = int(args[0]) if args and args[0].isdigit() else 1  
                         for _ in range(count):
-                            pyautogui.click()
+                            if enable_human_like_click:
+                                human_like_click(pyautogui.position().x, pyautogui.position().y)
+                            else:
+                                pyautogui.click()
                         display_message("system", f"Executed {count} click(s)")
 
                     elif cmd == "doubleclick":
@@ -1856,6 +1873,41 @@ def listen_to_keyboard():
             with lock:
                 last_key = event.name
 
+# Function to add a grid with labeled coordinates
+def add_grid_to_screenshot(image, grid_interval):
+    draw = ImageDraw.Draw(image)
+
+    # Customize the font size
+    font_size = 10
+    font = ImageFont.load_default()  # Use the default PIL font
+
+    # Draw the grid and label intersections
+    for x in range(0, screen_width, grid_interval):
+        for y in range(0, screen_height, grid_interval):
+            draw.line([(x, 0), (x, screen_height)], fill="blue")
+            draw.line([(0, y), (screen_width, y)], fill="blue")
+            coordinate_label = f"{x},{y}"
+            draw.text((x + 2, y), coordinate_label, fill="red", font=font)
+
+def draw_cursor(draw, cursor_position, cursor_size):
+    # Define colors
+    outer_color = "black"
+    inner_color = "white"
+
+    # Outer rectangle (black outline)
+    outer_rectangle = [cursor_position.x - 1, cursor_position.y - 1, cursor_position.x + cursor_size + 1, cursor_position.y + cursor_size + 1]
+    draw.rectangle(outer_rectangle, outline=outer_color, fill=outer_color)
+
+    # Inner rectangle (white cursor)
+    inner_rectangle = [cursor_position.x, cursor_position.y, cursor_position.x + cursor_size, cursor_position.y + cursor_size]
+    draw.rectangle(inner_rectangle, outline=inner_color, fill=inner_color)
+
+    # Draw an 'X' inside the rectangle
+    draw.line([cursor_position.x, cursor_position.y, cursor_position.x + cursor_size, cursor_position.y + cursor_size], fill=outer_color)
+    draw.line([cursor_position.x, cursor_position.y + cursor_size, cursor_position.x + cursor_size, cursor_position.y], fill=outer_color)
+
+
+
 # Function to take a screenshot
 def take_screenshot():
     global last_key  # Ensure you are referring to the global variable updated by the listener thread
@@ -1878,14 +1930,20 @@ def take_screenshot():
 
         # Draw a representation of the cursor on the screenshot
         draw = ImageDraw.Draw(screenshot)
-        cursor_size = 20  # Size of the cursor representation
-        draw.rectangle([cursor_position.x, cursor_position.y, cursor_position.x + cursor_size, cursor_position.y + cursor_size], outline="red")
+
+        
+        # Draw the enhanced cursor
+        draw_cursor(draw, cursor_position, cursor_size)
+
+        #draw.rectangle([cursor_position.x, cursor_position.y, cursor_position.x + cursor_size, cursor_position.y + cursor_size], outline="red")
 
         current_time = datetime.datetime.now()
         image_timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S')
         timestamp = int(time.time())
         # You can also draw the cursor position and last key pressed on the screenshot for visibility
         text_position = (10, 10)  # Position of the text
+        # Add the grid with labeled coordinates
+        add_grid_to_screenshot(screenshot, grid_interval=100)  # Set grid_interval as needed
         draw.text(text_position, f"Cursor Pos: {cursor_position} | Last Key: {current_last_key} | Timestamp: {image_timestamp} ", fill="white")
 
         screenshot_file_path = f"{logging_folder}/{timestamp}.png"
@@ -1901,6 +1959,7 @@ def take_screenshot():
 
 # Use the function and provide a path to save the screenshot
 #capture_screenshot_with_cursor_info('screenshot_info.png')
+
 # Function to run the scheduled tasks
 def run_scheduled_tasks():
     while running:
