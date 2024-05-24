@@ -1,114 +1,1596 @@
-import openai
-import time
-from PIL import ImageGrab
-import os
-import keyboard
-import pyautogui
-import threading
-import sys
 import datetime
-import requests
+import os
+import random
+import sys
+import threading
+import time
 from io import BytesIO
-from PIL import Image
+import base64
+import keyboard
+import numpy as np
+import openai
+import pyautogui
+import pydub
+from pydub import AudioSegment
+from pydub.playback import play
+from pyscreeze import screenshot
+import requests
 import schedule
+import sounddevice as sd
+import tiktoken
+from PIL import Image, ImageGrab, ImageDraw, ImageFont
+import random
+from threading import Lock
+from scipy.io.wavfile import write
+import tempfile
+import ffmpeg
+from getpass import getpass
+import json
+import io
+import math
 
-character_name = "Aurora"
-
+API_KEY="sk-proj-SECRETKEY"
+POWER_WORD = ""
+REQUIRE_POWER_WORD = False
 chat_history = []
+CONTEXT_LENGTH = 25192  # or whatever the max token count for GPT-4 is
+disable_commands = False  # Global boolean variable to track whether command processing is currently disabled
+show_user_text = True
+show_ai_text = True
+hide_ai_commands = False
+hide_user_commands = False
+tokenizer = tiktoken.get_encoding("cl100k_base")
+token_limit = 8100  # Set this to whatever limit you want
+token_counter = 0  # This will keep track of the tokens used so far
+character_name = "Aurora"
+last_interaction_time = time.time()
+init_handoff_in_progress = False
+enable_unimportant_messages = True
+enable_important_messages = True
+global ADD_UMSGS_TO_HISTORY
+global ADD_IMSGS_TO_HISTORY
+ADD_UMSGS_TO_HISTORY = True
+ADD_IMSGS_TO_HISTORY = True
+global IMGS_DECAY # Decay time in minutes for important messages
+global UMSGS_DECAY # Decay time in minutes for unimportant messages
+global CHECK_UMSGS_DECAY
+global CHECK_IMSGS_DECAY
+global userName
+global aiName
+CHECK_UMSGS_DECAY = True  # Initially set to True to enable decay checks for unimportant messages
+CHECK_IMSGS_DECAY = True  # Initially set to True to enable decay checks for important messages
+Always_ = False
+hide_input = None
+# Global variable to store the last executed command
+global last_command
+last_command = None
+screen_width, screen_height = pyautogui.size()
+MAX_IMAGES_IN_HISTORY = 3  # Global variable for the maximum number of images to retain
+#image_detail =  "high"   # "low" or depending on your requirement
+image_detail =  "low"   # "high" or depending on your requirement
+latest_image_detail = "high"  # "high" for the latest image, "low" for older images
+image_timestamp = None
+last_key = None  # Initialize the global variable
+mouse_position = {"x": 0, "y": 0}  # Initialize as a dictionary
+
+global MAX_IMPORTANT_MESSAGES
+global MAX_UNIMPORTANT_MESSAGES
+MAX_IMPORTANT_MESSAGES = 50  # Example value
+MAX_UNIMPORTANT_MESSAGES = 100  # Example value
+IMGS_DECAY = 9999 # Setting the default decay time to 3 minutes for important messages
+UMSGS_DECAY = 1.25 # Setting the default decay time to 3 minutes for unimportant messages
+time_interval = 30.1 # Time interval between screenshots (in seconds)
+
+cursor_size = 20  # Size of the cursor representation
+enable_human_like_click = False
+circle_duration = 0.5  # Duration for the circular motion in seconds
+circle_radius = 10  # Radius of the circular motion
+
+text_count = 0
+image_or_other_count = 0
+# Default values defined at the beginning of your script
+default_scroll_amount = 100  # Default scroll amount
+default_double_click_speed = 0.5  # Default double-click speed
+
+#script_directory = os.path.dirname(os.path.abspath(__file__))
+script_directory = 'C:\\Users\\thebeast\\OneDrive\\Desktop\\AURORA'
+# Set the sampling frequency (fs) to 48000 and channels to 4
+fs = 48000
+channels = 2
+
+# Set the default device (verify that device 20 is indeed the correct device)
+sd.default.device = 1
+
+lock = Lock()
+mouse_position_lock = Lock()
+last_key_lock = Lock()
+image_history_lock = Lock()
+
+# Parameters
+threshold = 31.11  
+pause_duration = 1.8  
+#sampling_rate = 44100 
+sampling_rate = fs 
+audio_buffer = []
+
+
+# Additional global variables
+AUTO_PROMPT_INTERVAL = 9  # Auto-prompt every 30 seconds, but you can change this value # Default auto message depreciated in favor of send_screenshot
+enable_auto_prompt = False
+auto_prompt_message = "Auto Prompt."  # Default auto message depreciated in favor of send_screenshot which also has text... 
+
+
+# Function to run the audio stream
+def run_audio_stream():
+    with sd.InputStream(callback=audio_callback):
+        sd.sleep(100000000)  # This will keep the audio stream open indefinitely. Adjust as needed.
+
+
+
+
+
+last_print_time = time.time()
+
+def audio_callback(indata, frames, time_info, status):
+    global last_print_time
+    volume_norm = np.linalg.norm(indata) * 10
+    #print("Volume Norm:", volume_norm)
+    #print("Indata:", indata)  # Print the initial data received
+
+    if volume_norm < threshold:
+        if len(audio_buffer) > sampling_rate * pause_duration:  
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav", dir=script_directory) as temp_file:
+                audio_data = np.array(audio_buffer, dtype=np.float32)
+                #print("Audio Data before conversion:", audio_buffer)  # Print data in the buffer
+                #print("Converted Audio Data:", audio_data)  # Print the converted data
+                audio_segment = AudioSegment(
+                audio_data.tobytes(),
+                frame_rate=sampling_rate,
+                sample_width=audio_data.dtype.itemsize,
+                channels=2
+                )
+
+                
+                # Adjust the sample width to a valid value (e.g., 2)
+                audio_segment = audio_segment.set_sample_width(2)
+
+                #play(audio_segment)
+                print("Audio Data: ", audio_data)  # Add this line to check the content of audio_data
+                write(temp_file.name, sampling_rate, audio_data.astype('float32'))
+                response = openai.Audio.transcribe(
+                    api_key=API_KEY,
+                    model="whisper-1",
+                    file=open(temp_file.name, "rb")
+                )
+            print("My Response: ", response)     
+            
+            #os.unlink(temp_file.name)
+            
+            # Assuming the transcribed text is in `response['text']`
+            transcribed_text = response['text']
+            
+            # Send the transcribed text to ChatGPT
+            #chatbot_response = send_prompt_to_chatgpt(transcribed_text)
+            
+            # Process the ChatGPT response
+            #send_prompt_to_chatgpt(chatbot_response)
+            send_prompt_to_chatgpt(transcribed_text)
+
+            audio_buffer.clear()  
+    else:
+        audio_buffer.extend(indata.tolist())
+
+
+
+
+# Start the audio stream in a separate thread
+audio_thread = threading.Thread(target=run_audio_stream)
+audio_thread.daemon = True
+audio_thread.start()
+
+def threshold_check(current_token_count, total_tokens, threshold_percentage):
+    threshold = total_tokens * threshold_percentage / 100
+    return current_token_count > threshold
+
+
+
+
+
+def is_command(message):
+    global REQUIRE_POWER_WORD, POWER_WORD
+    if REQUIRE_POWER_WORD:
+        if POWER_WORD and message.startswith(POWER_WORD):
+            return True
+        else:
+            return False
+    else:
+
+        # Assuming you have a function `is_known_command` that checks for known commands
+        return is_known_command(message) 
+    
+# List of known command prefixes
+is_known_command_prefixes = [
+    '/*', '*/', 'TOGGLE_POWER_WORD', 'VKB_CMD:', 'CURSORCMD:',
+    'toggle_always', 'INIT', 'PIN', 'RETRIEVE_HANDOFF', 'HANDOFF',
+    'RECALL', 'CLEAR_NOPIN%', 'CLEAR_NONPIN', 'CLEAR%', '-ch', '-CH',
+    'CLEAR', 'edit msgs', 'REMOVE_MSGS', 'DELETE_MSG:', 'SAVEPINNEDINIT',
+    'SAVEPINNEDHANDOFF', 'SAVEEXEMPTIONS', 'SAVE PINS', 'SAVE ALL PINS',
+    'HELP_VISIBILITY', 'HELP', 'hide', 'toggle', 'TOGGLE_SKIP_COMMANDS',
+    'DISPLAYHISTORY', 'DHISTORY', 'SAVECH', 'VKPAG:'  # ... add any other command identifiers you need
+    # Note: Make sure all prefixes are unique and not a subset of another prefix,
+    # otherwise, it may cause issues in recognizing commands accurately.
+]
+
+# Function to check if a message is a known command
+def is_known_command(message):
+    if message is None:
+        return False
+    # Check if the message starts with any of the known command prefixes
+    return any(message.startswith(prefix) for prefix in is_known_command_prefixes)
+
+
+
+def encode_image_to_base64(image_path):
+    """
+    Encodes an image to base64.
+    """
+    try:
+        with Image.open(image_path) as image:
+            buffered = io.BytesIO()
+            image.save(buffered, format="PNG")  # You can change PNG to a different format if needed
+            img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
+        return img_str
+    except Exception as e:
+        print(f"Error encoding image to base64: {e}")
+        return None
+
+def upload_image_and_get_file_id(image_path):
+    try:
+        response = openai.File.create(
+            file=open(image_path, "rb"),
+            purpose='chat_completion',
+        )
+        return response['id']
+    except Exception as e:
+        print(f"Failed to upload image and obtain file_id: {e}")
+        return None
+
 
 # Function to send prompt to ChatGPT
-def send_prompt_to_chatgpt(prompt, image_path=None):
-    messages = [{"role": "system", "content": "You are a helpful assistant."}, {"role": "user", "content": prompt}]
-    
-    # append user message to chat history
-    chat_history.append({"role": "user", "content": prompt})
+def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp=None, exemption=None):
+    global token_counter
+    global init_handoff_in_progress
+    global text_count
+    global image_or_other_count
+    global image_detail
 
-    if image_path is not None:
-        with open(image_path, "rb") as image_file:
-            image_data = image_file.read()
-        messages.append({"role": "user", "content": {"image": image_data}})
+    current_time = datetime.datetime.now()
+    timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S')
+    # Ensure the lock and headers are defined at the appropriate place in your code.
+    with lock:
+        # Headers for the API request
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {API_KEY}"
+        }
     
-    response = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=messages,
-        max_tokens=100000,
-        n=1,
-        temperature=0.5,
+       # if not is_important_message(prompt) and not init_handoff_in_progress:
+        #    update_chat_history("user", prompt)
+
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant."}
+        ]
+                # Check for pinned messages
+                # Add a default pinned message if none exists
+        if not any(entry.get('Exemption') in ['Pinned', 'Handoff', 'Special'] for entry in chat_history):
+            default_pinned_message = "Exemption: PINNED:PRIORITY GOALS: [Editable area for priority goals (10)] APRIORITY GOALS: [Editable area for apriority goals] NOTES: [Editable area for notes]"
+            update_chat_history("system", {'type': 'text', 'text': default_pinned_message}, exemption='Pinned')
+
+
+        # Instead of just extending the messages with text content, use the provided snippet
+        # to correctly format and include images as well.
+        # Properly format chat history entries for messages
+        for entry in chat_history:
+
+            if entry['content']['type'] == 'image':
+                # If the entry is an image, encode it and add it as an image_url content type
+                messages.append({
+                    "role": entry['role'],
+                    "content": [{"type": "image_url", "image_url": f"data:image/png;base64,{entry['content']['data']}"}]
+                })
+            elif entry['content']['type'] == 'text':
+                # If the entry is text, add it as plain text content
+                messages.append({
+                    "role": entry['role'],
+                    "content": entry['content']['text']
+                })
+        # Add the current prompt with a timestamp to messages
+        formatted_prompt = f"[{timestamp}] {prompt}"    
+        #Now, you would add the current prompt or image that's being processed.
+        if image_path:
+            # Set the detail level for the latest image
+            image_detail = latest_image_detail
+            # If an image path is provided, you process it here as you have done before.
+            print(image_path)
+            base64_image = encode_image_to_base64(image_path)
+            print("success")
+            messages.append({
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "What’s in this image please be short and concise? What images & text are in this conversation so far?"},  # Use your specific prompt if needed
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}",
+                    #{"type": "image_url", "image_url":  f"data:image/png;base64,{base64_image}",
+                 "detail": image_detail}
+            }]
+            })
+            print(f"In send_prompt_to_chatgpt, Before user update_chat_history, Image Timestamp: {image_timestamp}")
+            # Reset the image detail level for older images
+            image_detail = "low"
+            # Add the image data to chat history using update_chat_history
+            update_chat_history("user", None, image_path=image_path, image_timestamp=image_timestamp)
+        else:
+        # Handle text prompts
+            update_chat_history("user", prompt, exemption=exemption)
+            messages.append({"role": role, "content": formatted_prompt})
+
+
+        # Construct the payload
+        payload = {
+            "model": "gpt-4o",
+            #"model": "gpt-4-vision-preview",
+            #"model": "gpt-3.5-turbo-1106",
+            "messages": messages,
+            "max_tokens": 1937,
+            "temperature": 0.5
+           #"detail": image_detail  # Add the detail parameter here
+        }
+    
+        # Make the POST request
+        response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
+
+        # Check for successful status code
+        if response.status_code == 200:
+            response_data = response.json()
+            ai_response = response_data['choices'][0]['message']['content'].strip()
+            
+
+            # Display and update chat history with AI's response
+            display_message("assistant", ai_response)
+            update_chat_history("assistant", ai_response)
+            print("meow")
+            #print(chat_history)
+            print("NYAN")
+
+
+                # Here you check if the AI's response is a command and handle it
+            if is_command(ai_response):
+                handle_commands(ai_response, is_user=False)
+            else:
+                if not is_important_message(prompt, entry.get("Exemption")):
+                    #update_chat_history("assistant", ai_response)
+
+                     # Token counting and threshold checking
+                     token_count = count_tokens_in_history(chat_history)
+                     current_token_count = int(token_count.split()[0])
+                     token_counter = current_token_count
+                     print(f"Current token count in chat history: {token_count}")
+                     if threshold_check(current_token_count, CONTEXT_LENGTH, 75):
+                         warning_message = "Warning: Approaching token limit and context length"
+                         display_message("system", warning_message)
+                         #chat_history.append({"role": "system", "content": warning_message})
+ 
+            return ai_response
+        else:
+            # Handle errors
+            print(f"Error: {response.status_code}")
+            print(f"Message: {response.text}")
+            return None
+
+def update_chat_history(role, content, token_count=None, image_path=None, exemption='None', image_timestamp=None ):
+    global chat_history
+    global enable_unimportant_messages
+    global enable_important_messages
+    global mouse_position  # make sure to include this global if you want to use it in the function
+    global last_key  # make sure to include this global if you want to use it in the function
+    global last_command  # Use the global variable here
+    global ADD_UMSGS_TO_HISTORY
+    global ADD_IMSGS_TO_HISTORY
+    print(f"update_chat_history, Image Timestamp: {image_timestamp}")
+
+    important_exemptions = {'Pinned', 'Init', 'Special', 'Handoff'}
+    is_important = exemption in important_exemptions
+
+    if not is_important and not enable_unimportant_messages:
+        return
+    if is_important and not enable_important_messages:
+        return
+
+    if not is_important and not ADD_UMSGS_TO_HISTORY:
+        return
+    if is_important and not ADD_IMSGS_TO_HISTORY:
+        return
+
+    current_time = datetime.datetime.now()
+    timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S')
+        # Prepend timestamp to the content for all messages
+    content_with_timestamp = f"[{timestamp}] {content}"
+    #modified_content = content
+    # Check if the message is a special type like PINNED, Init, or Special
+    #if exemption in ['Pinned', 'Init', 'Handoff', 'Special']:
+    #    # Format the message to include the timestamp
+    #    content_with_timestamp = f"Timestamp: {timestamp}] {content}"
+    #else:
+    #    content_with_timestamp = content
+
+    # Update mouse position from pyautogui with error handling
+    # Acquire lock before accessing mouse_position
+    with mouse_position_lock:
+        try:
+            current_position = pyautogui.position()
+            mouse_position = {"x": current_position.x, "y": current_position.y}
+        except Exception as e:
+            print(f"Error getting mouse position: {e}")
+
+    # Prepare the dictionary entry for the chat history
+    history_entry = {
+        "timestamp": timestamp,
+        "role": role,
+        "token_count": token_count,
+        "Exemption": exemption,
+        "last_key": last_key,  # Add this line to include the last key press
+        "mouse_position": mouse_position,  # Add this line to include the current mouse position
+        "last_command": last_command,  # Add last_command to the history entry
+    }
+
+    # If an image path is provided, encode the image and add to the history entry
+    if image_path:
+        print("inside UCH"+ image_path)
+        base64_image = encode_image_to_base64(image_path)
+        #history_entry["timestamp"] = image_timestamp
+        history_entry["Exemption"] = "Image"  # Set exemption specifically for images
+        history_entry["content"] = {
+        "type": "image",
+        "data": base64_image,
+        "detail": image_detail,
+        #"timestamp": image_timestamp  # Include timestamp here
+    }
+        chat_history.append(history_entry)
+        # Iterate over chat history and check for image entries
+        for entry in chat_history:
+            if entry['content']['type'] == 'image':
+                image_data = entry['content']['data']
+
+                # Extract the specified character ranges from the base64 string
+                range1 = image_data[50:80]  # Characters 33 to 55
+                range2 = image_data[75:100]  # Characters 115 to 119
+
+                # Print the extracted ranges
+                print(f"Range 50-80: {range1}")
+                #print(f"Range 75-100: {range2}")
+                # Counters for image content types and image data entries
+        image_content_count = 0
+        image_data_count = 0
+
+        # Iterate over chat history to count image content types and image data entries
+        for entry in chat_history:
+            if entry['content']['type'] == 'image':
+                image_content_count += 1
+                if 'data' in entry['content'] and entry['content']['data']:
+                    image_data_count += 1
+
+        # Print the counts
+        print(f"Number of 'content type = image' entries: {image_content_count}")
+        print(f"Number of 'content data' entries: {image_data_count}")
+        #print(chat_history)        
+        manage_image_history(base64_image, image_timestamp=image_timestamp)  # Manage the image history
+
+        image_content_count2 = 0
+        image_data_count2 = 0
+        for entry in chat_history:
+            if entry['content']['type'] == 'image':
+                image_content_count2 += 1
+                if 'data' in entry['content'] and entry['content']['data']:
+                    image_data_count2 += 1
+    else:
+        history_entry["content"] = {"type": "text", "text": content_with_timestamp}
+        chat_history.append(history_entry)
+        print("ELSE IMAGE")
+
+
+    # Append the history entry to the chat history
+    last_command = None  # Reset last_command after updating chat history
+    # Check and remove messages based on decay time and importance
+    if CHECK_UMSGS_DECAY or CHECK_IMSGS_DECAY:
+        chat_history = [
+            entry for entry in chat_history
+            if not (
+                CHECK_UMSGS_DECAY 
+                and entry.get("Exemption") != "Image"  # Exclude image entries
+                and not (entry.get("Exemption") in important_exemptions)
+                and (current_time - datetime.datetime.strptime(entry['timestamp'], '%Y-%m-%d %H:%M:%S')).total_seconds()/60 > UMSGS_DECAY
+            ) and not (
+                CHECK_IMSGS_DECAY 
+                and entry.get("Exemption") != "Image"  # Exclude image entries
+                and (entry.get("Exemption") in important_exemptions)
+                and (current_time - datetime.datetime.strptime(entry['timestamp'], '%Y-%m-%d %H:%M:%S')).total_seconds()/60 > IMGS_DECAY
+            )
+        ]
+
+    print(f"At end of update_chat_history, Image Timestamp: {image_timestamp}")
+
+
+
+def manage_image_history(new_image_base64, image_timestamp=None):
+    global chat_history
+    global MAX_IMAGES_IN_HISTORY
+
+    # Check if the image already exists in the chat history
+    image_already_exists = any(
+        entry['content']['type'] == 'image' and entry['content']['data'] == new_image_base64
+        for entry in chat_history
     )
 
-    # append ChatGPT's response to chat history
-    chat_history.append({"role": "system", "content": response.choices[0].message['content'].strip()})
+    # Add the new image to chat_history only if it's not a duplicate
+    if not image_already_exists:
+        new_image_entry = {
+            "content": {
+                "type": "image",
+                "data": new_image_base64
+            },
+            "timestamp": image_timestamp if image_timestamp else datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        chat_history.append(new_image_entry)
 
-    return response.choices[0].message['content'].strip()
+    # Filter to get only image entries
+    image_entries = [entry for entry in chat_history if entry['content']['type'] == 'image']
+
+    # If the limit is exceeded, remove the oldest image(s)
+    while len(image_entries) > MAX_IMAGES_IN_HISTORY:
+        oldest_image_entry = min(image_entries, key=lambda x: x['timestamp'])
+        chat_history.remove(oldest_image_entry)
+        image_entries.remove(oldest_image_entry)
 
 
-# Read the init prompt from a file
-init_file = f"{character_name}_init.txt"
-with open(init_file, "r") as f:
-    init_prompt = f.read().strip()
+    # For debugging
+    ##print(f"Updated image entries: {image_entries}") 
 
 
-# Define process_chatgpt_response function before calling it
-def process_chatgpt_response(response_text):
+
+
+
+# Function to handle user input
+def user_input_handler():
     global chat_history
+    global disable_commands
+    global last_interaction_time
+    global Always_  # global declaration to access and modify the variable
+    global hide_input  # global declaration to access and modify the variable
+    while running:
+        # Check the elapsed time since the last interaction
+        
+        elapsed_time = time.time() - last_interaction_time
+        
+        if enable_auto_prompt and elapsed_time > AUTO_PROMPT_INTERVAL:
+            # Reset the last interaction time
+            last_interaction_time = time.time()
+            
+            # Trigger auto prompt
+            auto_prompt_response = send_prompt_to_chatgpt(auto_prompt_message)
+            #send_prompt_to_chatgpt(auto_prompt_response)
+        #user_input = input("") 
+        #user_input = getpass(prompt='')
+        user_input = get_user_input(Always_, hide_input)  # using the function to get user input
+        last_interaction_time = time.time()  # Update the last interaction time
 
-    if response_text.startswith("CMD:"):
-        command = response_text[4:]
-        if len(command) == 1:
-            keyboard.press_and_release(command)
-            print(f"Executed command: {command}")
-	else:
-            pyautogui.write(command)
-            print(f"Typed string: {command}")
-    elif response_text.startswith("HANDOFF"):
-        handoff_summary = response_text[7:] 
-        buffer.append(handoff_summary)
-        timestamp = int(time.time())
-        with open(f"{logging_folder}/handoff_{timestamp}.txt", "w") as log_file:
-            log_file.write(handoff_summary)
-        print("Handoff summary saved.")
-        restart_chatgpt_instance() 
-    elif response_text.startswith("CURSORCMD:"):
-        command = response_text[10:]
-        x, y = map(int, command.split(','))  # Assuming coordinates are comma-separated
-        pyautogui.click(x, y)
-        print(f"Moved cursor and clicked at ({x}, {y})")
-    elif response_text.startswith("EXEMPT"):
-        exemption_context = response_text[6:].strip()
-        chat_history.append({'role': 'assistant', 'content': f'Exemption: {exemption_context}'})
-        print(f"Exemption pinned: {exemption_context}")
-    elif response_text.startswith("CLEAR"):
-        clear_command = response_text[6:].strip()
-        if clear_command == "25":
-            clear_chat_history(0.25)
-        elif clear_command == "50":
-            clear_chat_history(0.5)
-        elif clear_command == "75":
-            clear_chat_history(0.75)
-    elif response_text.startswith("terminate_instance"):
-        shutdown_chatgpt_instance_and_exit()
+        if user_input.startswith('/*'):
+            disable_commands = True
+            continue  # Skip the rest of the loop
+        elif user_input.startswith('*/'):
+            disable_commands = False
+            continue  # Skip the rest of the loop
+
+        if disable_commands:
+            print("Command processing is currently disabled.")
+            continue  # Skip the rest of the loop
+
+        # Move all command handling to the handle_commands function
+        if is_command(user_input):
+            handle_commands(user_input, is_user=True)
+        else:
+            response_text = send_prompt_to_chatgpt(user_input)
+            #send_prompt_to_chatgpt(response_text)
+
+        if hbuffer:
+            handoff_prompt = hbuffer[-1]
+            print({hbuffer})
+            response_text = send_prompt_to_chatgpt(handoff_prompt)
+
+
+
+def get_user_input(Always_=None, hide_input=None):
+    if Always_ is not None:
+        if Always_:
+            hide_input = True
+        else:
+            hide_input = False
     else:
-        print("ChatGPT response:", response_text)
+        hide_input = input("Display input (yes or no)? ").strip().lower() == 'yes'
+    
+    if hide_input:
+        return getpass(prompt='')
+    else:
+        return input("")
+
+# Function for human-like click
+def human_like_click(x_pixel, y_pixel):
+    start_time = time.time()
+    while time.time() - start_time < circle_duration:
+        angle = ((time.time() - start_time) / circle_duration) * 2 * math.pi
+        x = x_pixel + math.cos(angle) * circle_radius
+        y = y_pixel + math.sin(angle) * circle_radius
+        pyautogui.moveTo(x, y, duration=0.1)
+    pyautogui.click(x_pixel, y_pixel)
+
+def handle_commands(command_input, is_user=True, exemption=None):
+    global chat_history
+    global disable_commands
+    global REQUIRE_POWER_WORD
+    global show_user_text
+    global show_ai_text
+    global hide_ai_commands
+    global hide_user_commands
+    global token_counter
+    global enable_unimportant_messages
+    global enable_important_messages
+    global ADD_UMSGS_TO_HISTORY
+    global ADD_IMSGS_TO_HISTORY
+    global Always_
+    global hide_input
+    #print(f"STCGPT1")
+    # Check if commands should be disabled
+    if command_input.startswith('/*'):
+        disable_commands = True
+        display_message("system", "Command processing is now disabled.")
+        return
+    elif command_input.startswith('*/'):
+        disable_commands = False
+        display_message("system", "Command processing is now enabled.")
+        return
+    #print(f"STCGPT2")
+    # If commands are disabled, ignore the rest
+    if disable_commands:
+        display_message("system", "Command processing is currently disabled.")
+        return
+    #print(f"STCGPT3")
+
+    if command_input is None:
+        return
+    #print(f"STCGPT4")
+
+    # Update the last_command with the current command
+    # Make sure `last_command` is also defined globally if needed
+    global last_command
+    last_command = command_input
+    command = None  # Define command before the try block
+    try:
+
+        commands = command_input.split(';')
+        for command in commands:
+            command = command.strip()
+            if not command:
+                continue
+
+            try:
+                if '(' in command and ')' in command:
+                    cmd, args_part = command.split('(', 1)
+                    args_part = args_part.rstrip(')')
+                    args = args_part.split(',') if args_part else []
+                    cmd = cmd.strip().lower()
+                else:
+                    args = []
+                    cmd = command.lower()
+
+                if cmd in ["press", "hold"]:
+                    key = args[0].strip().lower()
+                    if key in pyautogui.KEYBOARD_KEYS:
+                        if cmd == "press":
+                            pyautogui.press(key)
+                            display_message("system", f"Key pressed: {key}")
+                        elif cmd == "hold":
+                            duration = float(args[1]) if len(args) > 1 else None
+                            pyautogui.keyDown(key)
+                            if duration:
+                                pyautogui.sleep(duration)
+                                pyautogui.keyUp(key)
+                            display_message("system", f"Key held for {duration} seconds: {key}")
+                    else:
+                        display_message("error", f"Invalid key name: {key}")
+
+                elif cmd == "move":
+                    try:
+                        x, y = map(int, args)
+                        if 0 <= x <= screen_width and 0 <= y <= screen_height:
+                            pyautogui.moveTo(x, y)
+                            display_message("system", f"Cursor moved to ({x}, {y})")
+                        else:
+                            raise ValueError("Coordinates out of screen bounds")
+                    except ValueError:
+                        display_message("error", "Invalid coordinates for move command")
+
+                elif cmd == "drag":
+                    x, y, duration = map(float, args)
+                    pyautogui.dragTo(x, y, duration)
+                    display_message("system", f"Dragged to ({x}, {y}) in {duration} seconds")
+
+                elif cmd.startswith("scroll"):
+                    direction_units = cmd.split('_')
+                    units = int(args[0]) if args else default_scroll_amount
+                    if "down" in direction_units:
+                        pyautogui.scroll(-units)
+                    else:
+                        pyautogui.scroll(units)
+                    display_message("system", f"Scrolled {'down' if 'down' in direction_units else 'up'} {units} units")
+
+                elif cmd == "release":
+                    key = args[0]
+                    if key.lower() == "plus":
+                        pyautogui.keyUp('+')
+                        display_message("system", f"Plus key released.")
+                    else:
+                        pyautogui.keyUp(key)
+                        display_message("system", f"Key released: {key}")
+
+                elif cmd == "hotkey":
+                    pyautogui.hotkey(*args)
+                    display_message("system", f"Hotkey executed: {'+'.join(args)}")
+
+                elif cmd == "type":
+                    text = args[0]
+                    pyautogui.write(text)
+                    display_message("system", f"Text typed: {text}")
+
+                elif cmd == "multi_press":
+                    keys = [key.strip().lower() for key in args if key.strip().lower() in pyautogui.KEYBOARD_KEYS]
+                    if keys:
+                        pyautogui.hotkey(*keys)
+                        display_message("system", f"Simultaneously pressed keys: {', '.join(keys)}")
+                    else:
+                        display_message("error", "Invalid keys for multi_press command")
+
+                elif cmd == "multi_hold":
+                    keys = [key.strip().lower() for key in args if key.strip().lower() in pyautogui.KEYBOARD_KEYS]
+                    if keys:
+                        for key in keys:
+                            pyautogui.keyDown(key)
+                        display_message("system", f"Keys held down: {', '.join(keys)}")
+                    else:
+                        display_message("error", "Invalid keys for multi_hold command")
+
+                elif cmd == "multi_release":
+                    keys = [key.strip().lower() for key in args if key.strip().lower() in pyautogui.KEYBOARD_KEYS]
+                    if keys:
+                        for key in keys:
+                            pyautogui.keyUp(key)
+                        display_message("system", f"Keys released: {', '.join(keys)}")
+                    else:
+                        display_message("error", "Invalid keys for multi_release command")
+
+                elif cmd == "click" or cmd == "leftclick":
+                    count = int(args[0]) if args and args[0].isdigit() else 1
+                    for _ in range(count):
+                        if enable_human_like_click:
+                            human_like_click(pyautogui.position().x, pyautogui.position().y)
+                        else:
+                            pyautogui.click()
+                    display_message("system", f"Executed {count} click(s)")
+
+                elif cmd == "doubleclick":
+                    count = int(args[0]) if args and args[0].isdigit() else 1
+                    for _ in range(count):
+                        pyautogui.doubleClick(interval=default_double_click_speed)
+                    display_message("system", f"Executed {count} click(s)")
+
+                elif cmd == "hold_click":
+                    duration = float(args[0]) if args else 1.0
+                    pyautogui.mouseDown()
+                    pyautogui.sleep(duration)
+                    pyautogui.mouseUp()
+                    display_message("system", f"Held click for {duration} seconds")
+
+                elif cmd == "screenshot" and len(args) == 2:
+                    x, y = map(int, args)
+                    screenshot = pyautogui.screenshot()
+                    screenshot.save(f'screenshot_{x}_{y}.png')
+                    display_message("system", f"Screenshot saved as screenshot_{x}_{y}.png")
+
+                elif len(args) == 3:
+                    cmd, x, y = args
+                    x, y = map(int, [x, y])
+                    if cmd.lower() in ["double_click", "doubleclick", "click"]:
+                        pyautogui.doubleClick(x, y)
+                    elif cmd.lower() in ["right_click", "rightclick"]:
+                        pyautogui.rightClick(x, y)
+                    display_message("system", f"Executed cursor command: {cmd} at ({x}, {y})")
+
+                else:
+                    raise ValueError("Invalid command format")
+
+                update_chat_history('system', command_input)
+
+            except Exception as e:
+                display_message("system", f"Output: {command}. Error: {str(e)}.")
+      
+        # Edits single or multiple msgs via timestamp
+        if command_input.lower() in ("edit msgs"):
+            edit_commands = command_input[9:].split(';')
+            for edit_command in edit_commands:
+                try:
+                    # Assuming timestamp is at the end of the string, and split by space
+                    components = edit_command.strip().split(' ')
+                    timestamp = components[-1]
+                    new_content = ' '.join(components[:-1]).strip()
+        
+                    found = False
+                    for entry in chat_history:
+                        if entry['timestamp'] == timestamp:
+                            # Update timestamp to the current time
+                            # Preserve the exemption status unless explicitly changed
+                            current_exemption = entry.get('Exemption', 'None')
+                            entry['Exemption'] = current_exemption
+                            current_time = datetime.datetime.now()
+                            new_timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S')
+                            # Preserve the exemption status
+                            current_exemption = entry.get('Exemption', 'None')        
+                            # Calculate the new token count
+                            new_token_count = len(new_content.split())  # assuming each word is a token
+                            
+                            # Update the content, timestamp, and token_count in the entry
+                            entry['content'] = {'type': 'text', 'text': f"Edited: {new_content} {new_token_count} {new_timestamp}"}                          
+                            entry['token_count'] = new_token_count
+                            entry['timestamp'] = new_timestamp
+                            entry['Exemption'] = current_exemption
+                            found = True
+                            break
+                        
+                    if found:
+                        print(f"Message with timestamp {timestamp} edited successfully!")
+                        update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+                    else:
+                        print(f"No message found with timestamp {timestamp}.")
+                except ValueError:
+                    print(f"Invalid edit command format: {edit_command}. Correct format is 'new content timestamp'")
+    
+        if command_input.startswith('toggle_always'):
+            params = command_input.split()[1:]
+            if len(params) == 2:
+                Always_ = params[0].lower() == 'on'
+                hide_input = params[1].lower() == 'true'
+            else:
+                print("Invalid number of parameters. Usage: toggle_always on|off true|false")
+
+
+                update_chat_history('system', command_input)  # Log the command
+
+
+# Example usage:
+#handle_commands("MIXEDCMD: press(enter); move(100,200); click; type(Hello, World!); hold(shift,2); drag(150,150,2); scroll_down(800)")
+
+
+
+        
+        if command_input.startswith("TOGGLE_POWER_WORD"):
+            REQUIRE_POWER_WORD = not REQUIRE_POWER_WORD
+            display_message("system", f"POWER_WORD requirement toggled to {'ON' if REQUIRE_POWER_WORD else 'OFF'}.")
+            return
+
+
+
+                    #
+                    #    # A dictionary mapping special key strings to their pyautogui functions
+                    #    special_keys = {
+                    #        "plus": '+',
+                    #        "enter": 'enter',
+                    #        "shift": 'shift',
+                    #        "ctrl": 'ctrl',
+                    #        # Add other special keys here as necessary
+
+
+
+
+        if command_input.startswith('INIT'):
+            # Remove any previous Pinned Init summary
+            chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Init summary')]
+            # Add new Pinned Init summary
+            init_summary = command_input[5:]
+            update_chat_history('user', f'Pinned Init summary: {init_summary}')
+            print(f"Pinned Init summary: {init_summary}")
+            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+
+        if command_input.startswith("PIN"):
+            exemption_context = command_input[4:].strip()
+            exemption_type = "Pinned"  # or other types like "Init", "Handoff", "Special" based on your logic
+            display_message("assistant", f'Exemption: {exemption_context}', include_command=True)
+            update_chat_history('assistant', {'type': 'text', 'text': f'Exemption: {exemption_context}'}, exemption=exemption_type)
+            update_chat_history('system', command_input)
+        
+
+
+
+#removes multiple msgs from chat history using a start and end timestamps
+        if command_input.startswith("REMOVE_MSGS"):
+            try:
+                _, time_range = command_input.split("REMOVE_MSGS", 1)
+                start_time_str, _, end_time_str = time_range.strip().partition(" to ")
+                start_time = datetime.datetime.strptime(start_time_str.strip(), '%Y-%m-%d %H:%M:%S')
+                end_time = datetime.datetime.strptime(end_time_str.strip(), '%Y-%m-%d %H:%M:%S')
+
+                messages_to_remove = [msg for msg in chat_history if start_time <= datetime.datetime.strptime(msg['timestamp'], '%Y-%m-%d %H:%M:%S') <= end_time]
+
+                if not messages_to_remove:
+                    print("No messages found within the provided time range.")
+                    return
+
+                chat_history = [msg for msg in chat_history if msg not in messages_to_remove]
+                print(f"Removed {len(messages_to_remove)} messages from the chat history.")
+                update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+            except Exception as e:
+                print(f"Error processing the REMOVE_MSGS command: {e}")
+                
+        if command_input.startswith('RETRIEVE_HANDOFF'):
+            handoff_filename = command_input.split('_')[2].strip()
+            if not handoff_filename:
+                print("No handoff file specified.")
+                return
+            handoff_filepath = f"{logging_folder}/{handoff_filename}"
+            if not os.path.exists(handoff_filepath):
+                print(f"No such file exists: {handoff_filepath}")
+                return
+            with open(handoff_filepath, "r") as file:
+                handoff_summary = file.read().strip()
+            if any(entry['content'].startswith(f'Pinned Handoff context: {handoff_summary}') for entry in chat_history):
+                print("Handoff summary already in chat history.")
+                return  # This was indented incorrectly
+            chat_history.append({'role': 'assistant', 'content': f'Pinned Handoff context: {handoff_summary}'})
+            print(f"Pinned Handoff context from file: {handoff_summary}")
+        
+        if command_input.startswith("HANDOFF"):
+            handoff_summary = command_input[7:].strip()
+            hbuffer.append(handoff_summary)
+            timestamp = int(time.time())
+            with open(f"{logging_folder}/handoff_{timestamp}.txt", "w") as log_file:
+                log_file.write(handoff_summary)
+            update_chat_history('assistant', f'Pinned Handoff context: {handoff_summary}')
+            all_entries = [f"{entry['role']}: {entry['content']}" for entry in chat_history]
+            write_content_to_file("\n".join(all_entries), "all_entries.txt")
+            print("Handoff summary saved.")
+            restart_chatgpt_instance()
+
+        if command_input.lower() in ("TOGGLE AUTO PROMPT"):
+            global enable_auto_prompt
+            enable_auto_prompt = not enable_auto_prompt
+            if enable_auto_prompt:
+                display_message("system", "Auto-prompting has been enabled.")
+            else:
+                display_message("system", "Auto-prompting has been disabled.")
+
+        if command_input.lower() in ("shutdown instance"):
+            shutdown_chatgpt_instance_and_exit()
+
+        if command_input.lower() in ('terminate instance'):
+            terminate_instance()
+
+        if command_input.startswith("RECALL"):
+            recall_previous_summary(character_name)
+            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+
+
+        if command_input.lower() in ("clear_nopin%"):
+            try:  # This try was missing
+                percentage_to_clear = float(command_input[12:].strip()) / 100
+                if 0 <= percentage_to_clear <= 1:
+                    clear_chat_history_except_pinned(percentage_to_clear)
+                    update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+                else:
+                    print("Invalid percentage. Please enter a number between 0 and 100.")
+            except ValueError:
+                print("Invalid command format.", percentage_to_clear,  "Expected format is 'CLEAR_NOPIN%{number}'.")
+
+
+
+
+        if command_input.startswith("CLEAR%"):
+        # Extract the percentage value from the command
+            try:
+                percentage_to_clear = float(command_input[6:].strip()) / 100
+                if 0 <= percentage_to_clear <= 1:
+                    clear_chat_history(percentage_to_clear)
+                    update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+                else:
+                    print("Invalid percentage. Please enter a number between 0 and 100.")
+            except ValueError:
+                print("Invalid command format. Expected format is 'CLEAR%{number}'.")
+
+        if command_input.lower() in ("CLEAR ALL MESSAGES"):
+        # Keep only the Pinned Init summary, Pinned Handoff context, and Pinned Messages w exemptions
+            chat_history = [
+    entry for entry in chat_history 
+    if 'text' in entry['content'] and 
+    (entry['content']['text'].startswith('Pinned Init summary') or 
+     entry['content']['text'].startswith('Pinned Handoff context'))
+]
+
+            print("Chat history cleared, only pinned summaries remain.")
+            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+        if command_input.lower() in ("CLEAR INIT"):
+            # Clears the Init summary
+            chat_history = [
+    entry for entry in chat_history 
+    if 'text' in entry['content'] and 
+    not entry['content']['text'].startswith('Pinned Init summary')
+]
+            print("Chat history cleared, Init summaries removed.") 
+            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+
+
+
+
+
+
+
+
+        if command_input.lower() in ("CLEAR PIN"):
+            chat_history = [entry for entry in chat_history if entry.get('Exemption') != 'Pinned']
+            print("Pinned messages cleared.")
+            update_chat_history('system', command_input)
+
+
+
+
+
+
+
+
+
+
+
+
+
+        if command_input.lower() in ("CLEAR HANDOFF"):
+            # Clears the Init summary
+            chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Handoff context')]
+            print("Chat history cleared, Init summaries removed.")     
+        
+
+
+
+
+        #deletes a specific msg from chathistory via timestamp
+        if command_input.startswith("DELETE_MSG:"):
+            timestamp = command_input[11:].strip()
+            chat_history = [entry for entry in chat_history if entry['timestamp'] != timestamp]
+            print(f"Message with timestamp {timestamp} deleted successfully!")
+            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+
+        
+
+
+
+
+
+        if command_input.startswith('SAVEPINNEDINIT'):
+            pinned_init_summaries = [entry['content']['text'][19:] for entry in chat_history if isinstance(entry['content'], dict) and entry['content']['text'].startswith('Pinned Init summary')]            
+            write_content_to_file("\n".join(pinned_init_summaries), "pinned_init_summaries.txt")
+            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+
+
+
+
+
+
+
+
+
+        if command_input.startswith('SAVEPINNEDHANDOFF'):
+            pinned_handoff_contexts = [entry['content'][22:] for entry in chat_history if entry['content'].startswith('Pinned Handoff context')]
+            write_content_to_file("\n".join(pinned_handoff_contexts), "pinned_handoff_contexts.txt")
+            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+
+        if command_input.startswith('SAVEEXEMPTIONS'):
+            exemptions = [entry['content'][10:] for entry in chat_history if entry['content'].startswith('Exemption')]
+            write_content_to_file("\n".join(exemptions), "exemptions.txt")
+            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+        print("meow1")
+        if command_input.startswith('SAVE PINS'):
+            pinned_entries = [entry['content'] for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Exemption') or entry['content'].startswith('Pinned Handoff context')]
+            write_content_to_file("\n".join(pinned_entries), "pinned_entries.txt")
+            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+
+
+        if command_input.startswith('SAVE ALL PINS'):
+            all_entries = [f"{entry['role']}: {entry['content']}" for entry in chat_history]
+            write_content_to_file("\n".join(all_entries), "all_entries.txt")
+            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+        if command_input == 'HELP_VISIBILITY':
+            display_message("system", """
+            HIDE - Toggle the visibility of user text.
+            HIDE_AI - Toggle the visibility of AI responses.
+            HIDE_AI_COMMANDS - Toggle the visibility of commands given by the AI.
+            HIDE_USER_COMMANDS - Toggle the visibility of commands issued by the user.
+            TOGGLE_IMSGS - Toggle visibility of important messages by all, and prevents them from appending chat history
+                important messages being PINS, INITS, HANDOFF.
+            TOGGLE_UMSGS - Toggle visibility of unimportant by all, and prevents them from appending chat history
+            
+                            
+
+
+
+    """)
+            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+        if command_input.startswith(('HELP', '/HELP', '/?', '~help', '/help', '-h', '--help','/man', '-man','--man','-manual','--manual','/manual','-manual', '/info', '-info', '--info', '-?', '--?')):
+            display_message("system", """
+    Here is the list of available commands and their descriptions:
+
+    -/? or HELP 
+    
+    - "/* escape command
+      "*/" ends escape command
+                            
+
+                            
+    - HIDE_USER_TEXT: Toggle the visibility of user text. 
+      Usage: POWER_WORD HIDE_USER_TEXT
+
+    - HIDE_AI_TEXT: Toggle the visibility of AI responses.
+      Usage: POWER_WORD HIDE_AI_TEXT
+
+    - HIDE_AI_COMMANDS: Toggle the visibility of commands given by the AI.
+      Usage: POWER_WORD HIDE_AI_COMMANDS
+
+    - HIDE_USER_COMMANDS: Toggle the visibility of commands issued by the user.
+      Usage: POWER_WORD HIDE_USER_COMMANDS
+
+    - TOGGLE_IMSGS: Toggle visibility of important messages by all, and prevents them from appending to chat history.
+      Important messages include PINS, INITS, HANDOFF.
+      Usage: POWER_WORD TOGGLE_IMSGS
+
+    - TOGGLE_UMSGS: Toggle visibility of unimportant messages by all, and prevents them from appending to chat history.
+      Usage: POWER_WORD TOGGLE_UMSGS
+
+    - VKB_CMD: Execute a series of keyboard commands. Commands should be separated by a semicolon.
+      Example: POWER_WORD VKB_CMD: hold_A,0.5; B+SHIFT; C
+
+    - CURSORCMD: Execute a series of cursor commands. Commands should be separated by a semicolon.
+      Example: POWER_WORD CURSORCMD: move,100,200; click,300,400
+                            
+        - INIT: Clears any existing 'Pinned Init summary' from the chat history and adds a new one.
+      Usage: INIT {your summary here}
+
+    - RETRIEVE_HANDOFF: Retrieves a handoff summary from a specified file and adds it to the chat history, if not already present.
+      Usage: RETRIEVE_HANDOFF_{filename}
+                    
+    - PIN: Add a new exemption context.
+      Example: POWER_WORD PIN This is an exemption context.
+
+    - HANDOFF: Pin a handoff context.
+      Example: POWER_WORD HANDOFF This is a handoff context.
+
+    - CLEAR_NOPIN%: Clears a specified percentage of messages that are not pinned from the chat history.
+      Usage: CLEAR_NOPIN%{number}
+
+    - CLEAR_NON_PINNED: Clears all messages that are not pinned (not starting with 'Pinned Init summary', 'Pinned Handoff context', or 'Exemption') from the chat history.
+      Usage: CLEAR_NON_PINNED
+
+    - CLEAR%: Clears a specified percentage of messages from the chat history.
+      Usage: CLEAR%{number}
+
+    - CLEARALL: Clears all messages except those that start with 'Pinned Init summary' or 'Pinned Handoff context' from the chat history.
+      Usage: CLEARALL
+
+    - EDIT_MSGS: Allows you to edit one or multiple messages based on their timestamps.
+      Usage: EDIT_MSGS timestamp~|~|~new content;timestamp~|~|~new content
+
+    - REMOVE_MSGS: Removes multiple messages from the chat history based on a start and end timestamp range.
+      Usage: REMOVE_MSGS {start timestamp} to {end timestamp}
+
+    - DELETE_MSG: Deletes a specific message from the chat history based on its timestamp.
+      Usage: DELETE_MSG:{timestamp}
+
+    - DISPLAY_HISTORY: Displays the entire chat history with timestamps and roles.
+      Usage: DISPLAY_HISTORY
+
+    
+    """)
+            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+
+        if command_input.lower() == 'hide user text':
+            show_user_text = not show_user_text
+            if show_user_text:
+                display_message("system", "User text will now be displayed.")
+            else:
+                display_message("system", "User text will now be hidden.")
+
+        if command_input.lower() == 'hide ai text':
+            show_ai_text = not show_ai_text
+            if show_ai_text:
+                display_message("system", "AI text will now be displayed.")
+            else:
+                display_message("system", "AI text will now be hidden.")
+
+        if command_input.lower() == 'hide ai commands':
+            hide_ai_commands = not hide_ai_commands
+            if hide_ai_commands:
+                display_message("system", "AI commands will now be hidden.")
+            else:
+                display_message("system", "AI commands will now be displayed.")
+
+        if command_input.lower() == 'hide user commands':
+            hide_user_commands = not hide_user_commands
+            if hide_user_commands:
+                display_message("system", "User commands will now be hidden.")
+            else:
+                display_message("system", "User commands will now be displayed.")
+
+        if command_input.lower() in ('toggle unimportant messages'):
+            enable_unimportant_messages = not enable_unimportant_messages
+            return
+        
+        if command_input.lower() in ('toggle important messages'):
+            enable_important_messages = not enable_important_messages
+            return
+
+        if command_input.lower() in ('toggle add umsgs to history'):
+            ADD_UMSGS_TO_HISTORY = not ADD_UMSGS_TO_HISTORY
+            return
+
+        if command_input.lower() in ('toggle add imsgs to history'):
+            ADD_IMSGS_TO_HISTORY = not ADD_IMSGS_TO_HISTORY
+            return
+        
+        if command_input.lower() in ('toggle unmsgs decay check'):
+            CHECK_UMSGS_DECAY = not CHECK_UMSGS_DECAY
+            print(f"Unimportant messages decay check toggled to {'ON' if CHECK_UMSGS_DECAY else 'OFF'}.")
+
+        if command_input.lower() in ('toggle imsgs decay check'):
+            CHECK_IMSGS_DECAY = not CHECK_IMSGS_DECAY
+            print(f"Important messages decay check toggled to {'ON' if CHECK_IMSGS_DECAY else 'OFF'}.")
+
+
+        if not enable_unimportant_messages and is_unimportant_message(command_input, exemption=exemption):
+            return    
+        
+        if not enable_important_messages and is_important_message(command_input, exemption=exemption):
+            return    
+        
+        if command_input.startswith('TOGGLE_SKIP_COMMANDS'):
+            SKIP_ADDING_COMMANDS_TO_CHAT_HISTORY = not SKIP_ADDING_COMMANDS_TO_CHAT_HISTORY
+            display_message("system", f"Skipping adding commands to chat history: {SKIP_ADDING_COMMANDS_TO_CHAT_HISTORY}")
+            return
+
+        #if command_input.startswith("DISPLAYHISTORY") or command_input.lower() in ('displayhistory', 'display_history', '-ch', '-dh', '~ch', '~dh'):
+        #    if chat_history:
+        #        for entry in chat_history:
+        #            timestamp = entry.get('timestamp', 'No timestamp')
+        #            role = entry.get('role', 'No role')
+        #            # Check if content is a dictionary and has 'text' as a key
+        #            content = entry.get('content', {})
+        #            if isinstance(content, dict) and 'text' in content:
+        #                message = content['text']
+        #            else:
+        #                message = 'No content'
+        #            print(f"{timestamp} - {role}: {message}")
+        #    else:
+        #        print("No messages in the chat history.")    
+        #                # If none of the commands match
+        if command_input.startswith("SAVECH"):
+            save_chat_history_to_file(chat_history, 'chat_history')
+            display_message("system", "Chat history saved to chat_history.txt.")
+            return
+        
+        if command_input.startswith("DHISTORY"):
+                if chat_history:
+                    for entry in chat_history:
+                        timestamp = entry.get('timestamp', 'No timestamp')
+                        role = entry.get('role', 'No role')
+                        token_count = entry.get('token_count', 'N/A')
+                        last_key = entry.get('last_key', 'N/A')
+                        mouse_position = entry.get('mouse_position', 'N/A')
+                        last_command = entry.get('last_command', 'N/A')
+
+                        content = entry.get('content', {})
+                        message = 'No content'
+
+                        if isinstance(content, dict):
+                                content_type = content.get('type')
+                                if content_type == 'text':
+                                    message = content.get('text', 'No text content')[:15] + '...'
+                                elif content_type == 'image':
+                                    # Handling for images
+                                    print("image found")
+                                    image_data = content.get('data', '')
+                                    print("DATA")
+                                    message = f"Image Data: {image_data[50:80]}..." if image_data else "Image Data: Missing or empty 'data' key"
+                                    #pass
+                                else:
+                                    # If the content type is not recognized
+                                    message = f'[Other content type: {content_type}]'                        
+
+                        else:
+                        # Treat non-dictionary content as a text string
+                           message = str(content)[:80] + '...' if content else 'Empty content'
+                        # Content is not a dictionary
+                        #    message = f'Content type is "text" but content is not a dictionary. Content: {str(content)[:50]}...'
+
+                        print(f"{timestamp} - {role}: {message}")
+                        print(f"Token Count: {token_count}, Last Key: {last_key}, Mouse Position: {mouse_position}, Last Command: {last_command}")
+                else:
+                    print("No messages in the chat history.")
+    except Exception as e:
+        display_message("system", f"Failed to execute command: {command}. Error: {str(e)}.")
+                
+        display_message("system", " e1")
+    # Use the new display function for the AI's text
+        role = "assistant" if not is_user else "user"
+        if not (is_user and hide_user_commands) or (not is_user and hide_ai_commands):
+            display_message(role, command_input)#hmmmm
+            #chat_history.append({"role": "system", "content": command_input, "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
+
+        token_count = count_tokens_in_history(chat_history)
+        tokens_in_message = len(list(tokenizer.encode(command_input)))
+        token_counter = tokens_in_message
+        print(f"Current token count in chat history else1: {token_count}")
+        # Warning check: If token_counter is within 90% of the token_limit
+        if token_counter > 0.85 * token_limit and token_counter < token_limit:
+            print("Warning: Approaching token limit! Chat history will be saved.")  
+        # Urgent check: If token_counter has reached or exceeded token_limit
+        elif token_counter >= token_limit:
+            print("Token limit reached! Chat history saved and non-pinned messages will be cleared.")
+            #save_chat_history_to_file()
+            # Function to clear non-pinned messages
+            clear_percentage_except_pinned_and_exempt("CLEAR%70")
+            token_counter = 0   
+    else:
+    # If none of the commands match
+        display_message("system", " e2")
+    # Use the new display function for the AI's text
+        role = "assistant" if not is_user else "user"
+        if not (is_user and hide_user_commands) or (not is_user and hide_ai_commands):
+            display_message(role, command_input)#hmmmm
+            #chat_history.append({"role": "system", "content": command_input, "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
+
+        token_count = count_tokens_in_history(chat_history)
+        tokens_in_message = len(list(tokenizer.encode(command_input)))
+        token_counter = tokens_in_message
+        print(f"Current token count in chat history e2: {token_count}")
+        # Warning check: If token_counter is within 90% of the token_limit
+        if token_counter > 0.85 * token_limit and token_counter < token_limit:
+            print("Warning: Approaching token limit! Chat history will be saved.")  
+        # Urgent check: If token_counter has reached or exceeded token_limit
+        elif token_counter >= token_limit:
+            print("Token limit reached! Chat history saved and non-pinned messages will be cleared.")
+            #save_chat_history_to_file()
+            save_chat_history_to_file(chat_history, 'chat_history')
+            # Function to clear non-pinned messages
+            clear_percentage_except_pinned_and_exempt("CLEAR%70")
+            token_counter = 0   
+         
+def write_content_to_file(content, file_name):
+        with open(file_name, "w") as f:
+            f.write(content)
+        print(f"Content saved to {file_name}")
+
+#def save_chat_history_to_file(chat_history, file_name):
+#        # Get the current time and format it for the file name
+#    current_time = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+#    # Construct the file name with the current time
+#    file_nametime = f"{file_name}_{current_time}.txt"
+#    with open(file_nametime, 'w') as file:
+#        for entry in chat_history:
+#            file.write(str(entry) + '\n')
+#    print(f"Chat history saved to {file_name}")        
+#def save_chat_history_to_file(chat_history, file_name):
+#    """
+#    Saves the chat history to a file, including details for each entry.
+#    """
+#    current_time = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+#    file_nametime = f"{file_name}_{current_time}.txt"
+#
+#    with open(file_nametime, 'w') as file:
+#        for entry in chat_history:
+#            timestamp = entry.get('timestamp', 'No timestamp')
+#            role = entry.get('role', 'No role')
+#            token_count = entry.get('token_count', 'N/A')
+#            last_key = entry.get('last_key', 'N/A')
+#            mouse_position = entry.get('mouse_position', 'N/A')
+#            last_command = entry.get('last_command', 'N/A')
+#
+#            content = entry.get('content', {})
+#            message = 'No content'
+#
+#            if isinstance(content, dict):
+#                content_type = content.get('type')
+#                if content_type == 'text':
+#                    message = content.get('text', 'No text content')
+#                if content_type == 'image':
+#                    image_data = content.get('data', '')
+#                    message = f"Image Data: {image_data}" if image_data else "Image Data: Missing or empty 'data' key"
+#                else:
+#                    message = f'[Other content type: {content_type}]'
+#
+#            file.write(f"{timestamp} - {role}: {message}\n\n")
+#            file.write(f"Token Count: {token_count}, Last Key: {last_key}, Mouse Position: {mouse_position}, Last Command: {last_command}\n")
+#
+#    print(f"Chat history saved to {file_nametime}")
+
+def save_chat_history_to_file(chat_history, file_name):
+    current_time = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    file_nametime = f"{file_name}_{current_time}.txt"
+
+    with open(file_nametime, 'w', encoding='utf-8') as file:
+        for entry in chat_history:
+            # Extract information
+            timestamp = entry.get('timestamp', 'No timestamp')
+            role = entry.get('role', 'No role')
+            content = entry.get('content', {})
+            content_type = content.get('type', 'No type')
+
+            # Write basic info
+            file.write(f"Timestamp: {timestamp}\nRole: {role}\nType: {content_type}\n")
+
+            # Handle different content types
+            if content_type == 'text':
+                file.write(f"Message: {content.get('text', 'No text content')}\n\n")
+            elif content_type == 'image':
+                # For image, either write the data or a placeholder
+                image_data = content.get('data', 'No image data')
+                file.write(f"Image Data: {image_data[50:80]}... [truncated]\n\n")  # Truncate for preview
+            else:
+                file.write(f"Other Content: {content}\n\n")
+
+    print(f"Chat history saved to {file_nametime}")
+
+
+
+
+def display_message(role, content, token_count=None, include_command=False):
+    global show_user_text, show_ai_text, hide_ai_commands, hide_user_commands, REQUIRE_POWER_WORD, POWER_WORD
+
+    token_count_str = f" (Token count: {token_count}/{CONTEXT_LENGTH})" if token_count else ""
+
+    # Determine if content is a dictionary (i.e., possibly containing image data)
+    if isinstance(content, dict):
+        content_type = content.get('type')
+        if content_type == 'text':
+            # It's a text message
+            formatted_content = content.get('text', '[Missing text]')
+        elif content_type == 'image':
+            # It's an image. Handle accordingly (e.g., display a placeholder or decode image)
+            formatted_content = '[Image content]'
+        else:
+            formatted_content = '[Unknown content type]'
+    else:
+        # Content is not a dictionary, assume it's a text string
+        formatted_content = content
+
+    role_prefix = {
+        "user": "User",
+        "assistant": "Assistant",
+        "system": "System"
+    }.get(role, "Unknown")
+
+    if role == "user" and (not show_user_text or (hide_user_commands and is_command)):
+        return
+    elif role == "assistant" and (not show_ai_text or (hide_ai_commands and is_command)):
+        return
+
+    print(f"{role_prefix}: {formatted_content}{token_count_str}")
+
+
+class ChatMessage:
+    def __init__(self, role, content, token_count, timestamp, file_id=None, image_path=None, last_command=None, mouse_position=None, last_key=None):
+        global userName, aiName
+        name = aiName if role.lower() == 'assistant' else userName
+        self.name = name if name else ""
+        self.role = role
+        self.content = content
+        self.token_count = token_count
+        self.timestamp = timestamp
+        self.file_id = file_id  # Temporal reference to the image
+        self.image_path = image_path  # Permanent reference to the image
+        self.last_command = last_command or 'N/A'
+        self.mouse_position = mouse_position or 'N/A'
+        self.last_key = last_key or 'N/A'
+
+    def format_for_chatgpt(self):
+        # Adjust formatting to include both file_id and image_path
+        image_info = ""
+        if self.file_id:
+            image_info += f" FI {self.file_id}"
+        if self.image_path:
+            image_info += f" IP {self.image_path}"
+        return f"{self.role} {self.name} {self.content}{image_info} TC {self.token_count} {self.last_command} {self.last_key}: {self.mouse_position} {self.timestamp}"
+
+def is_important_message(content, exemption):
+    # Define a set of important exemption values
+    important_exemptions = {'Pinned', 'Init', 'Special', 'Handoff'}
+
+    # Check if the exemption value is in the set of important exemptions
+    return exemption in important_exemptions
+
+
+def is_unimportant_message(content, exemption=None):
+    # Check if the message content or its exemption status is unimportant
+    return not is_important_message(content, exemption)
+
+
+
+
+
+
+def count_tokens_in_history(chat_history):
+    # This will join all the 'text' from entries where the type is 'text'
+    text = " ".join([entry['content']['text'] for entry in chat_history if entry['content']['type'] == 'text'])
+    tokens_used = len(list(tokenizer.encode(text)))
+    return f"{tokens_used} out of {CONTEXT_LENGTH} available"
+
 
 
 def initiate_and_handoff():
-    response_text = send_prompt_to_chatgpt(init_prompt)
-    process_chatgpt_response(response_text)
-    if buffer:
-        handoff_prompt = buffer[-1]
-        response_text = send_prompt_to_chatgpt(handoff_prompt)
+    global init_handoff_in_progress
+    init_handoff_in_progress = True
 
-# Read the handoff summary from a file
-handoff_file = f"{character_name}_handoff.txt"
-if os.path.exists(handoff_file):
-    with open(handoff_file, "r") as f:
-        handoff_text = f.read().strip()
-    response_text = send_prompt_to_chatgpt(handoff_text)
-    process_chatgpt_response(response_text)
+    try:
+        # Check if the init prompt is already in the chat history
+        if not any(entry['content'].startswith(f'Pinned Init summary: {init_prompt}') for entry in chat_history):
+            timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+           # init_message = f'Pinned Init summary: {init_prompt}'
+            # Update the chat history with the init message and the Init exemption
+            #update_chat_history("system", init_message, exemption='Init')
+            response_text = send_prompt_to_chatgpt(init_prompt, role="system", exemption='Init')
+            # Optionally process the response_text further as needed
+    except openai.error.InvalidRequestError as e:
+        print(f"Error during initiation: {e}")
 
-# Define clear_chat_history function with percentage
+
+
+    init_handoff_in_progress = False
+    handoff_to_chatgpt()
+
+def handoff_to_chatgpt():
+    while hbuffer:
+        try:
+            handoff_prompt = hbuffer.pop(0)  # Using a queue mechanism to prevent potential infinite loops
+            response_text = send_prompt_to_chatgpt(handoff_prompt)
+            send_prompt_to_chatgpt(response_text)
+        except openai.error.InvalidRequestError as e:
+            print(f"Error during handoff: {e}")
+        if any(entry['content'].startswith(f'Pinned Handoff context: {handoff_prompt}') for entry in chat_history):
+            print("Handoff summary already in chat history.")
+            return
+
+    
+
+
+
+
+def clear_chat_history_except_pinned(percentage_to_clear):
+    # Filter out the important messages
+    important_msgs = [entry for entry in chat_history if entry['content'].startswith(('Pinned Init summary', 'Pinned Handoff context', 'Exemption'))]
+    non_important_msgs = [entry for entry in chat_history if not entry['content'].startswith(('Pinned Init summary', 'Pinned Handoff context', 'Exemption'))]
+
+    # Randomly select non-important messages to remove based on the percentage
+    num_to_remove = int(len(non_important_msgs) * percentage_to_clear)
+    msgs_to_remove = random.sample(non_important_msgs, num_to_remove)
+    
+    # Filter out the selected messages to remove
+    chat_history[:] = [msg for msg in chat_history if msg not in msgs_to_remove] + important_msgs
+
+    print(f"Removed {num_to_remove} non-important messages. Important messages are preserved.")
+
+
+# Define clear_chat_history function with percentage if over limit
 def clear_chat_history(percentage):
     global chat_history
+
     # Number of chats to keep
     num_chats_to_keep = int(len(chat_history) * (1-percentage))
 
@@ -125,84 +1607,107 @@ def clear_chat_history(percentage):
     else:
         non_exempted_entries = [entry for entry in chat_history if entry not in exempted_and_pinned_entries]
         chat_history = non_exempted_entries[-(num_chats_to_keep-len(exempted_and_pinned_entries)):] + exempted_and_pinned_entries
+
     print(f"Chat history cleared, {int(percentage*100)}% chats are removed, only most recent {num_chats_to_keep} entries, pinned summaries, and exemptions remain.")
 
-# Function to handle user commands
-def handle_commands(user_input):
-    global chat_history
-
-    if user_input.startswith('INIT'):
-        # Remove any previous Pinned Init summary
-        chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Init summary')]
-
-        # Add new Pinned Init summary
-        init_summary = user_input[5:]
-        chat_history.append({'role': 'user', 'content': f'Pinned Init summary: {init_summary}'})
-        print(f"Pinned Init summary: {init_summary}")
-
-    elif user_input.startswith('HANDOFF'):
-        # Remove any previous Pinned Handoff context
-        chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Handoff context')]
-
-        # Add new Pinned Handoff context
-        handoff_context = user_input[7:]
-        chat_history.append({'role': 'user', 'content': f'Pinned Handoff context: {handoff_context}'})
-        print(f"Pinned Handoff context: {handoff_context}")
-
-    elif user_input.startswith('EXEMPT'):
-        exemption_context = user_input[7:]
-        chat_history.append({'role': 'user', 'content': f'Exemption: {exemption_context}'})
-        print(f"Exemption pinned: {exemption_context}")
-
-    elif user_input == 'CLEAR':
-        # Keep only the Pinned Init summary, Pinned Handoff context and Exemptions
-        chat_history = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context') or entry['content'].startswith('Exemption')]
-        print("Chat history cleared, only pinned summaries and exemptions remain.")
-
-    elif user_input.startswith('CLEAR50'):
-        clear_chat_history(0.5)
-
-    elif user_input.startswith('CLEAR75'):
-        clear_chat_history(0.75)
-
-    elif user_input.startswith('CLEAR90'):
-        clear_chat_history(0.9)
-
-    elif user_input == 'CLEARALL':
-        # Keep only the Pinned Init summary and Pinned Handoff context
-        chat_history = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context')]
-        print("Chat history cleared, only pinned summaries remain.")
-
-
-# Global variable to control the main loop
-running = True
-
-# Set up OpenAI API client
-openai.api_key = "API KEY HERE"
-
-# Initialize ChatGPT API endpoint
-endpoint_url = "https://api.openai.com/v1/chat/completions/gpt-4"
-
-# Time interval between screenshots (in seconds)
-time_interval = 25.5
-
-# Set up screenshot options
-screenshot_options = {
-    "current_window": True,
-    "entire_screen": True,
-}
-
-# Set up buffer and logging folder
-buffer = []
-logging_folder = "screenshots"
-if not os.path.exists(logging_folder):
-    os.makedirs(logging_folder)
 
 
 
-# Send init prompt to ChatGPT
-response_text = send_prompt_to_chatgpt(init_prompt)
-print("ChatGPT response:", response_text)
+##def save_chat_history_to_file_old():
+ #   """
+ #   Save the current chat history to a file.
+ #   The filename will be formatted as 'chat_history_PrimaryAIName_date_time.txt',
+ #   where 'PrimaryAIName' is replaced with the name of the primary AI,
+ #   'date' is replaced with the current date, and 'time' is replaced with the current time.
+ #   """
+ #   # Get the current date and time
+ #   now = datetime.datetime.now()
+ #   
+ #   # Format the date and time as strings
+ #   date_str = now.strftime('%Y-%m-%d')
+ #   time_str = now.strftime('%H-%M-%S')
+ #   
+ #   # Create the filename
+ #   filename = f"chat_history_Aurora_{date_str}_{time_str}.txt"
+ #   
+ #   # Write the chat history to the file
+ #   with open(filename, 'w') as file:
+ #       for entry in chat_history:
+ #           role = entry['role']
+ #           content = entry['content']
+ #           file.write(f"{role}: {content}\n")
+ #               
+ #   print(f"Chat history saved to {filename}")
+
+def check_and_save_chat_history():
+    """
+    Check the token count in the chat history, and if it reaches the defined limit,
+    save the chat history to a file.
+    """
+    global token_counter
+
+    # Check if the token counter exceeds the limit
+    if token_counter > token_limit:
+        print("Token limit reached. Saving chat history to file...")
+        #save_chat_history_to_file()  # Save the chat history to a text file
+        save_chat_history_to_file(chat_history, 'chat_history')
+        token_counter = 0  # Reset the token counter
+
+
+def clear_percentage_except_pinned_and_exempt(command: str):
+    try:
+        percentage_to_clear = float(command[6:].strip()) / 100
+        if 0 <= percentage_to_clear <= 1:
+            
+            # Separate out pinned/init/exempted entries and others
+            pinned_and_exempted_entries = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context') or entry['content'].startswith('Exemption')]
+            other_entries = [entry for entry in chat_history if entry not in pinned_and_exempted_entries]
+
+            # Calculate the number of entries to keep
+            num_to_keep = int(len(other_entries) * (1 - percentage_to_clear))
+            kept_entries = other_entries[:num_to_keep]
+
+            # Merge the kept entries with the pinned/init/exempted ones
+            chat_history[:] = pinned_and_exempted_entries + kept_entries
+
+            print(f"Cleared {percentage_to_clear*100}% of chat history excluding pinned and exempted entries.")
+        else:
+            print("Invalid percentage. Please enter a number between 0 and 100.")
+    except ValueError:
+        print("Invalid command format. Expected format is 'CLEAR%{number}'.")
+
+
+def add_pinned_init_summary(init_summary: str):
+    if any(entry['content'].startswith(f'Pinned Init summary: {init_summary}') for entry in chat_history):
+        print("Handoff summary already in chat history.")
+        return
+
+    chat_history.append({'role': 'user', 'content': f'Pinned Init summary: {init_summary}'})
+    print(f"Pinned Init summary: {init_summary}")
+
+def retrieve_and_add_handoff(handoff_filename: str):
+    handoff_filepath = f"{logging_folder}/{handoff_filename}"
+    
+    if not os.path.exists(handoff_filepath):
+        print(f"No such file exists: {handoff_filepath}")
+        return
+
+    with open(handoff_filepath, "r") as file:
+        handoff_summary = file.read().strip()
+
+    if any(entry['content'].startswith(f'Pinned Handoff context: {handoff_summary}') for entry in chat_history):
+        print("Handoff summary already in chat history.")
+        return
+
+    chat_history.append({'role': 'assistant', 'content': f'Pinned Handoff context: {handoff_summary}'})
+    print(f"Pinned Handoff context from file: {handoff_summary}")
+
+def clear_non_pinned_entries():
+    chat_history[:] = [entry for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Pinned Handoff context') or entry['content'].startswith('Exemption')]
+    print("Chat history cleared, only pinned summaries and exemptions remain.")
+
+
+
 
 # Function to check if daily summary has been completed
 def daily_summary_completed(date):
@@ -218,6 +1723,7 @@ def save_daily_summary():
         with open(f"{logging_folder}/daily_summary_{date}.txt", "w") as log_file:
             log_file.write(daily_summary_text)
         print("Daily summary saved.")
+
 # Function to check if it's time to save the daily summary
 def check_daily_summary_time():
     current_time = datetime.datetime.now().time()
@@ -228,7 +1734,7 @@ def daily_summary():
     current_time = datetime.datetime.now()
     if current_time.hour == 19:  # 7 pm
         summary = send_prompt_to_chatgpt("Summarize today's important events and points from Aurora's perspective.")
-        process_chatgpt_response(summary)
+        send_prompt_to_chatgpt(summary)
         with open(f"{logging_folder}/daily_summary_{current_time.strftime('%Y-%m-%d')}.txt", "w") as log_file:
             log_file.write(summary)
         print("Daily summary saved.")
@@ -242,7 +1748,7 @@ def check_previous_handoff():
         with open(handoff_filename, "r") as handoff_file:
             handoff_text = handoff_file.read()
         response_text = send_prompt_to_chatgpt(handoff_text)
-        process_chatgpt_response(response_text)
+        send_prompt_to_chatgpt(response_text)
 
 # Function to perform shutdown procedure for the current ChatGPT instance and exit the program
 def shutdown_chatgpt_instance_and_exit():
@@ -250,7 +1756,7 @@ def shutdown_chatgpt_instance_and_exit():
     date = datetime.date.today().strftime("%Y-%m-%d")
     if not daily_summary_completed(date):
         save_daily_summary()
-    handoff_summary = f"Handoff {date}: " + buffer[-1]  # Save the last summary in the buffer
+    handoff_summary = f"Handoff {date}: " + hbuffer[-1]  # Save the last summary in the buffer
     with open(f"{logging_folder}/handoff_{date}.txt", "w") as log_file:
         log_file.write(handoff_summary)
     print("Handoff summary saved.")
@@ -261,7 +1767,7 @@ def shutdown_chatgpt_instance_and_exit():
 def terminate_instance():
     daily_summary()
     handoff_summary = send_prompt_to_chatgpt("Create a handoff summary for the next instance.")
-    process_chatgpt_response(handoff_summary)
+    send_prompt_to_chatgpt(handoff_summary)
     with open(f"{logging_folder}/Handoff_{datetime.datetime.now().strftime('%Y-%m-%d')}.txt", "w") as log_file:
         log_file.write(handoff_summary)
     print("Handoff summary saved.")
@@ -273,9 +1779,9 @@ def terminate_instance():
 def restart_chatgpt_instance():
     # Send init_prompt and handoff_prompt to the new instance
     response_text = send_prompt_to_chatgpt(init_prompt)
-    process_chatgpt_response(response_text)
-    if buffer:
-        handoff_prompt = buffer[-1]
+    send_prompt_to_chatgpt(response_text)
+    if hbuffer:
+        handoff_prompt = hbuffer[-1]
         response_text = send_prompt_to_chatgpt(handoff_prompt)
     
     # Send init_prompt and handoff_prompt to the new instance
@@ -290,7 +1796,7 @@ def check_for_previous_handoff():
         with open(handoff_filename, "r") as handoff_file:
             handoff_text = handoff_file.read()
         response_text = send_prompt_to_chatgpt(handoff_text)
-        process_chatgpt_response(response_text)
+        send_prompt_to_chatgpt(response_text)
 
 
 def recall_previous_summary(character_name):
@@ -313,46 +1819,62 @@ def recall_previous_summary(character_name):
     else:
         print("No initial profile summary found.")
 
+def listen_to_keyboard():
+    global last_key
+    while True:
+        event = keyboard.read_event()
+        if event.event_type == keyboard.KEY_DOWN:
+            with lock:
+                last_key = event.name
 
-initiate_and_handoff()
+# Ensure this path points to a valid TrueType font file on your system
+FONT_PATH = "times.ttf"  # Times New Roman font file, change to the correct path if needed
 
-# Function to handle user input
-def user_input_handler():
-    while running:
-        user_input = input("Type your message, 'recall' to read previous summaries, or 'terminate_instance' to end: ")
+# Function to add a grid with labeled coordinates
+def add_grid_to_screenshot(image, grid_interval):
+    draw = ImageDraw.Draw(image)
 
-        if user_input.startswith('INIT'):
-            # Remove any previous Pinned Init summary
-            chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Init summary')]
+    # Customize the font size
+    font_size = 23
 
-            # Add new Pinned Init summary
-            init_summary = user_input[5:]
-            chat_history.append({'role': 'user', 'content': f'Pinned Init summary: {init_summary}'})
-            print(f"Pinned Init summary: {init_summary}")
+    # Load a TrueType font with the specified size
+    try:
+        font = ImageFont.truetype(FONT_PATH, font_size)
+    except IOError:
+        print("Font file not found. Falling back to default font.")
+        font = ImageFont.load_default()  # Fallback to default font if TrueType font not found
 
-        elif user_input.lower() == 'terminate_instance':
-            terminate_instance()
+    # Draw the grid and label intersections
+    for x in range(0, screen_width, grid_interval):
+        for y in range(0, screen_height, grid_interval):
+            draw.line([(x, 0), (x, screen_height)], fill="blue")
+            draw.line([(0, y), (screen_width, y)], fill="blue")
+            coordinate_label = f"{x},{y}"
+            draw.text((x + 2, y), coordinate_label, fill="red", font=font)
 
-        elif user_input.lower() == 'recall':
-            recall_previous_summary(character_name)
+def draw_cursor(draw, cursor_position, cursor_size):
+    # Define colors
+    outer_color = "black"
+    inner_color = "white"
 
-        else:
-            handle_commands(user_input)
-            response_text = send_prompt_to_chatgpt(user_input)
-            process_chatgpt_response(response_text)
-            if buffer:
-                handoff_prompt = buffer[-1]
-                response_text = send_prompt_to_chatgpt(handoff_prompt)
+    # Outer rectangle (black outline)
+    outer_rectangle = [cursor_position.x - 1, cursor_position.y - 1, cursor_position.x + cursor_size + 1, cursor_position.y + cursor_size + 1]
+    draw.rectangle(outer_rectangle, outline=outer_color, fill=outer_color)
+
+    # Inner rectangle (white cursor)
+    inner_rectangle = [cursor_position.x, cursor_position.y, cursor_position.x + cursor_size, cursor_position.y + cursor_size]
+    draw.rectangle(inner_rectangle, outline=inner_color, fill=inner_color)
+
+    # Draw an 'X' inside the rectangle
+    draw.line([cursor_position.x, cursor_position.y, cursor_position.x + cursor_size, cursor_position.y + cursor_size], fill=outer_color)
+    draw.line([cursor_position.x, cursor_position.y + cursor_size, cursor_position.x + cursor_size, cursor_position.y], fill=outer_color)
 
 
-# Create a thread for user input handling and start it
-#user_input_thread = threading.Thread(target=lambda: user_input_handler(input("Type your message, 'recall' to read previous summaries, or 'terminate_instance' to end: ")))
-user_input_thread = threading.Thread(target=user_input_handler)
-user_input_thread.daemon = True
-user_input_thread.start()
 
 # Function to take a screenshot
 def take_screenshot():
+    global last_key  # Ensure you are referring to the global variable updated by the listener thread
+    global image_timestamp
     if screenshot_options["current_window"]:
         # Code to capture the current window snapshot
         # Depending on the platform, you might need additional libraries and code
@@ -361,11 +1883,45 @@ def take_screenshot():
     if screenshot_options["entire_screen"]:
         # Capture entire screen
         screenshot = ImageGrab.grab()
+    
+        # Get the mouse cursor's current position
+        cursor_position = pyautogui.position()
+
+        # Use the global last_key variable instead of reading the event here
+        with lock:  # Ensure thread-safe access to last_key
+            current_last_key = last_key
+
+        # Draw a representation of the cursor on the screenshot
+        draw = ImageDraw.Draw(screenshot)
+
+        
+        # Draw the enhanced cursor
+        draw_cursor(draw, cursor_position, cursor_size)
+
+        #draw.rectangle([cursor_position.x, cursor_position.y, cursor_position.x + cursor_size, cursor_position.y + cursor_size], outline="red")
+
+        current_time = datetime.datetime.now()
+        image_timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S')
         timestamp = int(time.time())
+        # You can also draw the cursor position and last key pressed on the screenshot for visibility
+        text_position = (30, 30)  # Position of the text
+        # Add the grid with labeled coordinates
+        add_grid_to_screenshot(screenshot, grid_interval=150)  # Set grid_interval as needed
+        draw.text(text_position, f"Cursor Pos: {cursor_position} | Last Key: {current_last_key} | Timestamp: {image_timestamp} ", fill="white")
+
         screenshot_file_path = f"{logging_folder}/{timestamp}.png"
         screenshot.save(screenshot_file_path)
-        send_prompt_to_chatgpt("Here is a screenshot:", screenshot_file_path)
+        print(f"Screenshot Timestamp: {image_timestamp}")
+        # Now, we send the prompt and include the screenshot file path
+        #send_prompt_to_chatgpt("Here's a screenshot of my entire screen. Lets play Pokemon Blue in the VBA emulator. :3 We will play with individual button presses. Please simply reply to screenshots with only a command. VKPAG:click for example. If you need help, or have questions then ask away, but always be concise. with one or a short series set of individual button presses in response to each image. images will only update after a response is obtain from here. Display is 1920 X 1080 Landscape. ie click on folder/app called at mouse position x, y via move,x,y; leftclick; x,y select open keys in VBA emulator are Up: Up Arrow Please pretend like there is a parser listening for key commands and mouse commands the format from handle_commands of VKPAG:(PYAUTOGUI KEYBOARD/mouse commands, arguments);  VKPAG:hold_shift,1.5;move(100,200); rightClick(100,200); click(100,200)", screenshot_file_path)
+        send_prompt_to_chatgpt("please respond '", role="user", image_path= screenshot_file_path, image_timestamp=image_timestamp)  #image_timestamp might be buggy
 
+        #auto_prompt_response = send_prompt_to_chatgpt("meow ")
+        #send_prompt_to_chatgpt(auto_prompt_response)
+       # send_prompt_to_chatgpt("auto prompt:", screenshot_file_path)
+
+# Use the function and provide a path to save the screenshot
+#capture_screenshot_with_cursor_info('screenshot_info.png')
 
 # Function to run the scheduled tasks
 def run_scheduled_tasks():
@@ -373,16 +1929,90 @@ def run_scheduled_tasks():
         schedule.run_pending()
         time.sleep(1)
 
-# Schedule the screenshot taking function
+# Read the init prompt from a file
+init_file = f"{character_name}_init.txt"
+with open(init_file, "r") as f:
+    init_prompt = f.read().strip()
+
+
+
+# Read the handoff summary from a file
+handoff_file = f"{character_name}_handoff.txt"
+if os.path.exists(handoff_file):
+    with open(handoff_file, "r") as f:
+        handoff_text = f.read().strip()
+    response_text = send_prompt_to_chatgpt(handoff_text)
+    send_prompt_to_chatgpt(response_text)      #Fixxxxxxxxxxxxxxxxxxxxxx   meeeee
+
+
+# Function to monitor and restart threads if necessary
+def thread_watchdog(threads):
+    while running:
+        for thread_name, thread_obj in threads.items():
+            if not thread_obj.is_alive():
+                print(f"Thread {thread_name} seems to have crashed. Restarting...")
+                new_thread = threading.Thread(target=thread_obj._target)
+                new_thread.daemon = True
+                new_thread.start()
+                threads[thread_name] = new_thread
+        time.sleep(5)  # Adjust the sleep time as necessary
+
+# Global variable to control the main loop
+running = True
+
+
+
+
+# Set up screenshot options
+screenshot_options = {
+    "current_window": True,
+    "entire_screen": True,
+}
+
+# Set up buffer and logging folder
+screenbuffer = []
+hbuffer= []
+logging_folder = "screenshots"
+if not os.path.exists(logging_folder):
+    os.makedirs(logging_folder)
+
+
+
+
+
+
+
+initiate_and_handoff()
+
+
+
+
+#
+## Schedule the screenshot taking function
 schedule.every(time_interval).seconds.do(take_screenshot)
-
-# Schedule daily summary
+#
+## Schedule daily summary
 schedule.every().day.at("19:00").do(save_daily_summary)
+#
 
-# Create a thread for running scheduled tasks and start it
-scheduled_tasks_thread = threading.Thread(target=run_scheduled_tasks)
-scheduled_tasks_thread.daemon = True
-scheduled_tasks_thread.start()
+
+# Dictionary to keep track of threads
+threads = {
+    "user_input_thread": threading.Thread(target=user_input_handler),
+    "listen_to_keyboard": threading.Thread(target=listen_to_keyboard),
+    "scheduled_tasks_thread": threading.Thread(target=run_scheduled_tasks)
+
+}
+
+# Start the threads and store them in the dictionary
+for thread_name, thread_obj in threads.items():
+    thread_obj.daemon = True
+    thread_obj.start()
+
+# Create a thread for the watchdog function and start it
+watchdog_thread = threading.Thread(target=thread_watchdog, args=(threads,))
+watchdog_thread.daemon = True
+watchdog_thread.start()
 
 # Main loop to keep the program running
 while running:
