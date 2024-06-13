@@ -79,10 +79,10 @@ MAX_IMPORTANT_MESSAGES = 50  # Example value
 MAX_UNIMPORTANT_MESSAGES = 100  # Example value
 IMGS_DECAY = 9999 # Setting the default decay time to 3 minutes for important messages
 UMSGS_DECAY = 1.25 # Setting the default decay time to 3 minutes for unimportant messages
-time_interval = 30.1 # Time interval between screenshots (in seconds)
+time_interval = 5.1 # Time interval between screenshots (in seconds)
 
 cursor_size = 20  # Size of the cursor representation
-enable_human_like_click = False
+enable_human_like_click = True
 circle_duration = 0.5  # Duration for the circular motion in seconds
 circle_radius = 10  # Radius of the circular motion
 
@@ -622,13 +622,34 @@ def get_user_input(Always_=None, hide_input=None):
         return input("")
 
 # Function for human-like click
+#def human_like_click(x_pixel, y_pixel):
+#    start_time = time.time()
+#    while time.time() - start_time < circle_duration:
+#        angle = ((time.time() - start_time) / circle_duration) * 2 * math.pi
+#        x = x_pixel + math.cos(angle) * circle_radius
+#        y = y_pixel + math.sin(angle) * circle_radius
+#        pyautogui.moveTo(x, y, duration=0.1)
+#    pyautogui.click(x_pixel, y_pixel)
+
 def human_like_click(x_pixel, y_pixel):
+    # Randomize the circle duration and radius slightly
+    circle_duration = random.uniform(0.5, 1.5)
+    circle_radius = random.uniform(5, 15)
+    
+    # Randomize starting angle
+    start_angle = random.uniform(0, 2 * math.pi)
+    
     start_time = time.time()
     while time.time() - start_time < circle_duration:
-        angle = ((time.time() - start_time) / circle_duration) * 2 * math.pi
+        # Increment the angle over time, adding small random noise
+        angle = start_angle + ((time.time() - start_time) / circle_duration) * 2 * math.pi + random.uniform(-0.1, 0.1)
         x = x_pixel + math.cos(angle) * circle_radius
         y = y_pixel + math.sin(angle) * circle_radius
-        pyautogui.moveTo(x, y, duration=0.1)
+        
+        # Move to the calculated position with a slight random duration
+        pyautogui.moveTo(x, y, duration=random.uniform(0.05, 0.2))
+    # Add a slight random delay before the final click
+    time.sleep(random.uniform(0.1, 0.3))
     pyautogui.click(x_pixel, y_pixel)
 
 def handle_commands(command_input, is_user=True, exemption=None):
@@ -1904,7 +1925,7 @@ def take_screenshot():
         image_timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S')
         timestamp = int(time.time())
         # You can also draw the cursor position and last key pressed on the screenshot for visibility
-        text_position = (30, 30)  # Position of the text
+        text_position = (40, 55)  # Position of the text
         # Add the grid with labeled coordinates
         add_grid_to_screenshot(screenshot, grid_interval=150)  # Set grid_interval as needed
         draw.text(text_position, f"Cursor Pos: {cursor_position} | Last Key: {current_last_key} | Timestamp: {image_timestamp} ", fill="white")
