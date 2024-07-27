@@ -29,7 +29,7 @@ import json
 import io
 import math
 
-API_KEY="sk-proj-SECRETKEY"
+API_KEY=                                                                                                                                                                                                                                                                                                                "sk-proj-123abc"
 POWER_WORD = ""
 REQUIRE_POWER_WORD = False
 chat_history = []
@@ -65,10 +65,13 @@ hide_input = None
 global last_command
 last_command = None
 screen_width, screen_height = pyautogui.size()
-MAX_IMAGES_IN_HISTORY = 3  # Global variable for the maximum number of images to retain
+MAX_IMAGES_IN_HISTORY = 5  # Global variable for the maximum number of images to retain
 #image_detail =  "high"   # "low" or depending on your requirement
 image_detail =  "low"   # "high" or depending on your requirement
 latest_image_detail = "high"  # "high" for the latest image, "low" for older images
+# Define the High_Detail global variable
+global High_Detail
+High_Detail = 0  # Initialize to 0 or set as needed  pos for recent high detail, neg for last
 image_timestamp = None
 last_key = None  # Initialize the global variable
 mouse_position = {"x": 0, "y": 0}  # Initialize as a dictionary
@@ -257,7 +260,7 @@ def upload_image_and_get_file_id(image_path):
 
 
 # Function to send prompt to ChatGPT
-def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp=None, exemption=None):
+def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp=None, exemption=None, sticky=False):
     global token_counter
     global init_handoff_in_progress
     global text_count
@@ -293,11 +296,19 @@ def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp
         for entry in chat_history:
 
             if entry['content']['type'] == 'image':
+                image_detail = entry['content'].get('detail', 'low')
+                print(image_detail + "in chat history")
+                if entry['content'].get('sticky', False):
+                    image_detail = "high"
+                    
                 # If the entry is an image, encode it and add it as an image_url content type
                 messages.append({
                     "role": entry['role'],
-                    "content": [{"type": "image_url", "image_url": f"data:image/png;base64,{entry['content']['data']}"}]
+                    "content": [{"type": "image_url", "image_url":  {"url": f"data:image/png;base64,{entry['content']['data']}","detail": image_detail}
+                }]
                 })
+                #print("chathistory msgs: ")
+                #print(messages)
             elif entry['content']['type'] == 'text':
                 # If the entry is text, add it as plain text content
                 messages.append({
@@ -309,25 +320,61 @@ def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp
         #Now, you would add the current prompt or image that's being processed.
         if image_path:
             # Set the detail level for the latest image
-            image_detail = latest_image_detail
+            #image_detail = latest_image_detail
             # If an image path is provided, you process it here as you have done before.
             print(image_path)
             base64_image = encode_image_to_base64(image_path)
             print("success")
+            #print(image_detail + " of image path")
             messages.append({
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": "What’s in this image please be short and concise? What images & text are in this conversation so far?"},  # Use your specific prompt if needed
+                    {"type": "text", "text": "Based on the provided screenshot(s), please describe each or any screenshot then respond with an appropriate description "},  # Use your specific prompt if needed
+
+                    #{"type": "text", "text": "Based on the provided screenshot(s), please describe each or any screenshot then respond with the appropriate command to complete objective of playing Pokemon. If not in Pokemon try clicking on VBA emulator, and then using next response to adust notes in pinned messages of actions taken via edit msgs. If an action is required, use 'VKPAG: [command(args); command(args)]' for interface interactions, or 'edit msgs [timestamp]' to update Pinned messages. If clarification or assistance is needed, feel free to engage in a conversation without a command prefix. Otherwise please do not respond about the image unless absolutely necessary. Responses should be VKPAG or edit msgs"},  # Use your specific prompt if needed
                     {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}",
                     #{"type": "image_url", "image_url":  f"data:image/png;base64,{base64_image}",
                  "detail": image_detail}
             }]
             })
+            #print("image path msg: ")
+            #print(messages)
+           # messages.append({
+           #     "role": "user",
+           #     "content": [
+           #         {"type": "text", "text": "What’s in this image please be short and concise? What images & text are in this conversation so far?"},
+           #         {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}, "detail": latest_image_detail}
+           #     ]
+           # })
+
+            #messages.append({
+            #    "role": "user",
+            #    "content": {
+            #        {"type": "text", "text": "What’s in this image please be short and concise? What images & text are in this conversation so far?"},  # Use your specific prompt if needed
+            #        #{"type": "image_url", "image_url": f"data:image/png;base64,{base64_image}",
+            #        #{"type": "image_url", "image_url":  f"data:image/png;base64,{base64_image}",
+            #     #"detail": latest_image_detail}
+            #
+            #}})
+            #messages.append({
+            #    "role": "user",
+            #    "content": {
+            #        "type": "text",
+            #        "text": "What’s in this image please be short and concise? What images & text are in this conversation so far?"
+            #    }
+            #})
+            #messages.append({
+            #    "role": "user",
+            #    # Content should be an object, not a list
+            #    "content": {"type": "image_url", "image_url": f"data:image/png;base64,{base64_image}", "detail": latest_image_detail}  # Changed: made image_url a key-value pair directly
+            #})
+
             print(f"In send_prompt_to_chatgpt, Before user update_chat_history, Image Timestamp: {image_timestamp}")
             # Reset the image detail level for older images
-            image_detail = "low"
+
             # Add the image data to chat history using update_chat_history
-            update_chat_history("user", None, image_path=image_path, image_timestamp=image_timestamp)
+            update_chat_history("user", None, image_path=image_path, image_timestamp=image_timestamp, sticky=sticky)
+           # image_detail = "low"
         else:
         # Handle text prompts
             update_chat_history("user", prompt, exemption=exemption)
@@ -336,7 +383,8 @@ def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp
 
         # Construct the payload
         payload = {
-            "model": "gpt-4o",
+            "model": "gpt-4o-mini",            
+            #"model": "gpt-4o",
             #"model": "gpt-4-vision-preview",
             #"model": "gpt-3.5-turbo-1106",
             "messages": messages,
@@ -386,7 +434,8 @@ def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp
             print(f"Message: {response.text}")
             return None
 
-def update_chat_history(role, content, token_count=None, image_path=None, exemption='None', image_timestamp=None ):
+def update_chat_history(role, content, token_count=None, image_path=None, exemption='None', image_timestamp=None, sticky=False ):
+
     global chat_history
     global enable_unimportant_messages
     global enable_important_messages
@@ -452,6 +501,7 @@ def update_chat_history(role, content, token_count=None, image_path=None, exempt
         "type": "image",
         "data": base64_image,
         "detail": image_detail,
+        "sticky": sticky  # Add sticky flag
         #"timestamp": image_timestamp  # Include timestamp here
     }
         chat_history.append(history_entry)
@@ -482,7 +532,7 @@ def update_chat_history(role, content, token_count=None, image_path=None, exempt
         print(f"Number of 'content type = image' entries: {image_content_count}")
         print(f"Number of 'content data' entries: {image_data_count}")
         #print(chat_history)        
-        manage_image_history(base64_image, image_timestamp=image_timestamp)  # Manage the image history
+        manage_image_history(base64_image, image_timestamp=image_timestamp, sticky=sticky)  # Manage the image history
 
         image_content_count2 = 0
         image_data_count2 = 0
@@ -495,7 +545,7 @@ def update_chat_history(role, content, token_count=None, image_path=None, exempt
         history_entry["content"] = {"type": "text", "text": content_with_timestamp}
         chat_history.append(history_entry)
         print("ELSE IMAGE")
-
+        #print(chat_history)
 
     # Append the history entry to the chat history
     last_command = None  # Reset last_command after updating chat history
@@ -520,9 +570,10 @@ def update_chat_history(role, content, token_count=None, image_path=None, exempt
 
 
 
-def manage_image_history(new_image_base64, image_timestamp=None):
+def manage_image_history(new_image_base64, image_timestamp=None, sticky=False):
     global chat_history
     global MAX_IMAGES_IN_HISTORY
+    global High_Detail
 
     # Check if the image already exists in the chat history
     image_already_exists = any(
@@ -535,7 +586,9 @@ def manage_image_history(new_image_base64, image_timestamp=None):
         new_image_entry = {
             "content": {
                 "type": "image",
-                "data": new_image_base64
+                "data": new_image_base64,
+                "detail": "low",  # Default to low detail
+                "sticky": sticky  # Add sticky flag
             },
             "timestamp": image_timestamp if image_timestamp else datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
@@ -543,6 +596,28 @@ def manage_image_history(new_image_base64, image_timestamp=None):
 
     # Filter to get only image entries
     image_entries = [entry for entry in chat_history if entry['content']['type'] == 'image']
+
+    # Adjust detail levels based on High_Detail
+    if isinstance(High_Detail, int):
+        if High_Detail > 0:
+            # Set the most recent High_Detail number of images to high detail
+            for i in range(1, High_Detail + 1):
+                if i <= len(image_entries):
+                    image_entries[-i]['content']['detail'] = "high"
+        elif High_Detail < 0:
+            # Set the oldest High_Detail number of images to high detail
+            for i in range(-High_Detail):
+                if i < len(image_entries):
+                    image_entries[i]['content']['detail'] = "high"
+    elif isinstance(High_Detail, str) and High_Detail.lower() in ["true", "all", "t", "a"]:
+        # Set all images to high detail
+        for entry in image_entries:
+            entry['content']['detail'] = "high"
+
+    # Ensure sticky images remain high detail
+    for entry in image_entries:
+        if entry['content'].get('sticky', False):
+            entry['content']['detail'] = "high"
 
     # If the limit is exceeded, remove the oldest image(s)
     while len(image_entries) > MAX_IMAGES_IN_HISTORY:
@@ -667,6 +742,10 @@ def handle_commands(command_input, is_user=True, exemption=None):
     global ADD_IMSGS_TO_HISTORY
     global Always_
     global hide_input
+    global image_detail
+    global latest_image_detail
+    global High_Detail
+    global MAX_IMAGES_IN_HISTORY
     #print(f"STCGPT1")
     # Check if commands should be disabled
     if command_input.startswith('/*'):
@@ -832,6 +911,59 @@ def handle_commands(command_input, is_user=True, exemption=None):
                     elif cmd.lower() in ["right_click", "rightclick"]:
                         pyautogui.rightClick(x, y)
                     display_message("system", f"Executed cursor command: {cmd} at ({x}, {y})")
+
+                elif cmd == "toggle_image_detail":
+                    image_detail = "high" if image_detail == "low" else "low"
+                    display_message("system", f"Global image_detail toggled to: {image_detail}")
+                    update_chat_history('system', f"Global image_detail toggled to: {image_detail}")
+
+                elif cmd == "toggle_latest_image_detail":
+                    latest_image_detail = "high" if latest_image_detail == "low" else "low"
+                    display_message("system", f"Global latest_image_detail toggled to: {latest_image_detail}")
+                    update_chat_history('system', f"Global latest_image_detail toggled to: {latest_image_detail}")
+
+                elif cmd == "set_high_detail":
+                    try:
+                        value = int(args[0])
+                        High_Detail = value
+                        display_message("system", f"Global High_Detail set to: {High_Detail}")
+                        update_chat_history('system', f"Global High_Detail set to: {High_Detail}")
+                    except ValueError:
+                        display_message("error", "Invalid value for High_Detail. Must be an integer.")
+
+                elif cmd == "set_max_images_in_history":
+                    try:
+                        value = int(args[0])
+                        MAX_IMAGES_IN_HISTORY = value
+                        display_message("system", f"Global MAX_IMAGES_IN_HISTORY set to: {MAX_IMAGES_IN_HISTORY}")
+                        update_chat_history('system', f"Global MAX_IMAGES_IN_HISTORY set to: {MAX_IMAGES_IN_HISTORY}")
+                    except ValueError:
+                        display_message("error", "Invalid value for MAX_IMAGES_IN_HISTORY. Must be an integer.")
+
+                elif cmd == "set_image_detail":
+                    try:
+                        detail = args[0].strip().lower()
+                        if detail in ["low", "high"]:
+                            image_detail = detail
+                            display_message("system", f"Global image_detail set to: {image_detail}")
+                            update_chat_history('system', f"Global image_detail set to: {image_detail}")
+                        else:
+                            display_message("error", "Invalid value for image_detail. Must be 'low' or 'high'.")
+                    except IndexError:
+                        display_message("error", "No value provided for image_detail.")
+
+                elif cmd == "set_latest_image_detail":
+                    try:
+                        detail = args[0].strip().lower()
+                        if detail in ["low", "high"]:
+                            latest_image_detail = detail
+                            display_message("system", f"Global latest_image_detail set to: {latest_image_detail}")
+                            update_chat_history('system', f"Global latest_image_detail set to: {latest_image_detail}")
+                        else:
+                            display_message("error", "Invalid value for latest_image_detail. Must be 'low' or 'high'.")
+                    except IndexError:
+                        display_message("error", "No value provided for latest_image_detail.")
+
 
                 else:
                     raise ValueError("Invalid command format")
