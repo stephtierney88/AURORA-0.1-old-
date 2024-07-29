@@ -29,7 +29,7 @@ import json
 import io
 import math
 
-API_KEY=                                                                                                                                                                                                                                                                                                                "sk-proj-123abc"
+API_KEY=                                                                                                                                                                                                                                                                                                                "sk-proj-key"
 POWER_WORD = ""
 REQUIRE_POWER_WORD = False
 chat_history = []
@@ -297,7 +297,7 @@ def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp
 
             if entry['content']['type'] == 'image':
                 image_detail = entry['content'].get('detail', 'low')
-                print(image_detail + "in chat history")
+                print(image_detail + " detail in chat history")
                 if entry['content'].get('sticky', False):
                     image_detail = "high"
                     
@@ -338,6 +338,7 @@ def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp
             }]
             })
             #print("image path msg: ")
+            print(image_detail + " detail in image path message append")
             #print(messages)
            # messages.append({
            #     "role": "user",
@@ -2005,11 +2006,35 @@ def add_grid_to_screenshot(image, grid_interval):
             coordinate_label = f"{x},{y}"
             draw.text((x + 2, y), coordinate_label, fill="red", font=font)
 
+
+# Function to add a dot grid with labeled coordinates
+def add_grid_to_screenshot2(image, grid_interval):
+    draw = ImageDraw.Draw(image)
+
+    # Customize the font size
+    font_size = 23
+
+    # Load a TrueType font with the specified size
+    try:
+        font = ImageFont.truetype(FONT_PATH, font_size)
+    except IOError:
+        print("Font file not found. Falling back to default font.")
+        font = ImageFont.load_default()  # Fallback to default font if TrueType font not found
+
+    # Draw dots and coordinates
+    for x in range(0, screen_width, grid_interval):
+        for y in range(0, screen_height, grid_interval):
+            draw.ellipse((x-2, y-2, x+2, y+2), fill="red", outline="red")  # Draw the dot
+            coordinate_label = f"{x},{y}"
+            draw.text((x + 5, y - 15), coordinate_label, fill="white", font=font)
+
+
 def draw_cursor(draw, cursor_position, cursor_size):
     # Define colors
     outer_color = "black"
     inner_color = "white"
-
+    circle_color = "red"
+    
     # Outer rectangle (black outline)
     outer_rectangle = [cursor_position.x - 1, cursor_position.y - 1, cursor_position.x + cursor_size + 1, cursor_position.y + cursor_size + 1]
     draw.rectangle(outer_rectangle, outline=outer_color, fill=outer_color)
@@ -2022,6 +2047,31 @@ def draw_cursor(draw, cursor_position, cursor_size):
     draw.line([cursor_position.x, cursor_position.y, cursor_position.x + cursor_size, cursor_position.y + cursor_size], fill=outer_color)
     draw.line([cursor_position.x, cursor_position.y + cursor_size, cursor_position.x + cursor_size, cursor_position.y], fill=outer_color)
 
+    # Draw the red circle around the cursor
+    radius = cursor_size + 5  # Adjust the radius as needed
+    circle_bounds = [cursor_position.x - radius, cursor_position.y - radius, cursor_position.x + cursor_size + radius, cursor_position.y + cursor_size + radius]
+    draw.ellipse(circle_bounds, outline=circle_color, width=2)
+
+def draw_text_with_background(draw, position, text, font, text_color="white", background_color="black"):
+    # Calculate text size
+    text_size = draw.textsize(text, font=font)
+    
+    # Set padding around the text
+    padding = 4
+
+    # Define the background rectangle position
+    background_position = (
+        position[0] - padding,
+        position[1] - padding,
+        position[0] + text_size[0] + padding,
+        position[1] + text_size[1] + padding
+    )
+
+    # Draw the background rectangle
+    draw.rectangle(background_position, fill=background_color)
+
+    # Draw the text over the background rectangle
+    draw.text(position, text, fill=text_color, font=font)
 
 
 # Function to take a screenshot
@@ -2059,8 +2109,25 @@ def take_screenshot():
         # You can also draw the cursor position and last key pressed on the screenshot for visibility
         text_position = (40, 55)  # Position of the text
         # Add the grid with labeled coordinates
-        add_grid_to_screenshot(screenshot, grid_interval=150)  # Set grid_interval as needed
-        draw.text(text_position, f"Cursor Pos: {cursor_position} | Last Key: {current_last_key} | Timestamp: {image_timestamp} ", fill="white")
+        #add_grid_to_screenshot(screenshot, grid_interval=150)  # Set grid_interval as needed
+        # Draw the grid with labeled coordinates
+        add_grid_to_screenshot2(screenshot, grid_interval=150)  # Set grid_interval as needed
+        text_info = f"Cursor Pos: {cursor_position} | Last Key: {current_last_key} | Timestamp: {image_timestamp}"
+
+
+        # Customize the font size
+        font_size = 23
+
+        # Load a TrueType font with the specified size
+        try:
+            font = ImageFont.truetype(FONT_PATH, font_size)
+        except IOError:
+            print("Font file not found. Falling back to default font.")
+            font = ImageFont.load_default()  # Fallback to default font if TrueType font not found
+
+        # Draw text with background
+        draw_text_with_background(draw, text_position, text_info, font)
+        #draw.text(text_position, f"Cursor Pos: {cursor_position} | Last Key: {current_last_key} | Timestamp: {image_timestamp} ", fill="white")
 
         screenshot_file_path = f"{logging_folder}/{timestamp}.png"
         screenshot.save(screenshot_file_path)
@@ -2072,6 +2139,7 @@ def take_screenshot():
         #auto_prompt_response = send_prompt_to_chatgpt("meow ")
         #send_prompt_to_chatgpt(auto_prompt_response)
        # send_prompt_to_chatgpt("auto prompt:", screenshot_file_path)
+
 
 # Use the function and provide a path to save the screenshot
 #capture_screenshot_with_cursor_info('screenshot_info.png')
