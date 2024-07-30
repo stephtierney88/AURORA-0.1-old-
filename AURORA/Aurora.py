@@ -18,7 +18,10 @@ import requests
 import schedule
 import sounddevice as sd
 import tiktoken
-from PIL import Image, ImageGrab, ImageDraw, ImageFont
+from PIL import Image
+from PIL import ImageGrab
+from PIL import ImageDraw
+from PIL import ImageFont # ImageFilter
 import random
 from threading import Lock
 from scipy.io.wavfile import write
@@ -2004,8 +2007,8 @@ def add_grid_to_screenshot(image, grid_interval):
             draw.line([(x, 0), (x, screen_height)], fill="blue")
             draw.line([(0, y), (screen_width, y)], fill="blue")
             coordinate_label = f"{x},{y}"
-            draw.text((x + 2, y), coordinate_label, fill="red", font=font)
-
+            #draw.text((x + 2, y), coordinate_label, fill="red", font=font)
+            #draw_text_with_background(draw, (x + 5, y - 15), coordinate_label, font)
 
 # Function to add a dot grid with labeled coordinates
 def add_grid_to_screenshot2(image, grid_interval):
@@ -2026,15 +2029,15 @@ def add_grid_to_screenshot2(image, grid_interval):
         for y in range(0, screen_height, grid_interval):
             draw.ellipse((x-2, y-2, x+2, y+2), fill="red", outline="red")  # Draw the dot
             coordinate_label = f"{x},{y}"
-            draw.text((x + 5, y - 15), coordinate_label, fill="white", font=font)
-
+            #draw.text((x + 5, y - 15), coordinate_label, fill="white", font=font)
+            draw_text_with_background(draw, (x + 5, y - 15), coordinate_label, font, background_opacity=128, shift_x=5, shift_y=20)
 
 def draw_cursor(draw, cursor_position, cursor_size):
     # Define colors
     outer_color = "black"
     inner_color = "white"
     circle_color = "red"
-    
+
     # Outer rectangle (black outline)
     outer_rectangle = [cursor_position.x - 1, cursor_position.y - 1, cursor_position.x + cursor_size + 1, cursor_position.y + cursor_size + 1]
     draw.rectangle(outer_rectangle, outline=outer_color, fill=outer_color)
@@ -2052,26 +2055,76 @@ def draw_cursor(draw, cursor_position, cursor_size):
     circle_bounds = [cursor_position.x - radius, cursor_position.y - radius, cursor_position.x + cursor_size + radius, cursor_position.y + cursor_size + radius]
     draw.ellipse(circle_bounds, outline=circle_color, width=2)
 
-def draw_text_with_background(draw, position, text, font, text_color="white", background_color="black"):
-    # Calculate text size
-    text_size = draw.textsize(text, font=font)
+#def draw_text_with_background(draw, position, text, font, text_color="white", background_color="black", background_opacity=58, shift_x=5, shift_y=20):
+#    # Calculate text size
+#    text_size = draw.textsize(text, font=font)
+#    
+#    # Set padding around the text
+#    padding = 4
+#
+#    # Define the background rectangle position with shift
+#    background_position = (
+#        position[0] - padding + shift_x,
+#        position[1] - padding + shift_y,
+#        position[0] + text_size[0] + padding + shift_x,
+#        position[1] + text_size[1] + padding + shift_y
+#    )
+#
+#    # Draw the background rectangle directly on the draw object with transparency
+#    draw.rectangle(background_position, fill=(0, 0, 0, background_opacity))
+#
+#    # Draw the text over the background rectangle
+#    draw.text((position[0] + shift_x, position[1] + shift_y), text, fill=text_color, font=font)
+
+def draw_text_with_background(draw, position, text, font, text_color="white", background_color="black", background_opacity=128, shift_x=5, shift_y=20):
+    print("Starting draw_text_with_background function")
+    # Calculate text size using textbbox
+    text_bbox = draw.textbbox(position, text, font=font)
+    text_width = text_bbox[2] - text_bbox[0]
+    text_height = text_bbox[3] - text_bbox[1]
+    print(f"text_bbox: {text_bbox}, text_width: {text_width}, text_height: {text_height}")
     
     # Set padding around the text
     padding = 4
 
-    # Define the background rectangle position
+    # Define the background rectangle position with shift
     background_position = (
-        position[0] - padding,
-        position[1] - padding,
-        position[0] + text_size[0] + padding,
-        position[1] + text_size[1] + padding
+        position[0] - padding + shift_x,
+        position[1] - padding + shift_y,
+        position[0] + text_width + padding + shift_x,
+        position[1] + text_height + padding + shift_y
     )
+    print(f"background_position: {background_position}")
 
-    # Draw the background rectangle
-    draw.rectangle(background_position, fill=background_color)
+    # Create a transparent image for the background
+    background_image = Image.new('RGBA', draw.im.size, (0, 0, 0, 0))
+    print(f"background_image: {background_image}")
+    background_draw = ImageDraw.Draw(background_image)
+    background_color_with_opacity = (0, 0, 0, background_opacity)
+    background_draw.rectangle(background_position, fill=background_color_with_opacity)
+    print("Drawn background rectangle")
+
+    # Extract the alpha channel from the background image
+    alpha = background_image.split()[3]
+    print(f"alpha channel: {alpha}")
+
+    # Ensure alpha is an ImagingCore object
+    print(f"alpha.im: {alpha.im}, type: {type(alpha.im)}")
+
+    # Composite the transparent background onto the original image using paste with a mask
+    bounding_box = (0, 0, draw.im.size[0], draw.im.size[1])
+    print(f"bounding_box: {bounding_box}")
+    draw.im.paste(background_image.im, bounding_box, alpha.im)
+    print("Pasted background image with alpha mask")
 
     # Draw the text over the background rectangle
-    draw.text(position, text, fill=text_color, font=font)
+    draw.text((position[0] + shift_x, position[1] + shift_y), text, fill=text_color, font=font)
+    print("Text drawn over background rectangle")
+    print("Finished draw_text_with_background function")
+
+
+
+
 
 
 # Function to take a screenshot
@@ -2111,8 +2164,8 @@ def take_screenshot():
         # Add the grid with labeled coordinates
         #add_grid_to_screenshot(screenshot, grid_interval=150)  # Set grid_interval as needed
         # Draw the grid with labeled coordinates
-        add_grid_to_screenshot2(screenshot, grid_interval=150)  # Set grid_interval as needed
         text_info = f"Cursor Pos: {cursor_position} | Last Key: {current_last_key} | Timestamp: {image_timestamp}"
+        add_grid_to_screenshot2(screenshot, grid_interval=150)  # Set grid_interval as needed
 
 
         # Customize the font size
@@ -2126,7 +2179,7 @@ def take_screenshot():
             font = ImageFont.load_default()  # Fallback to default font if TrueType font not found
 
         # Draw text with background
-        draw_text_with_background(draw, text_position, text_info, font)
+        draw_text_with_background(draw, text_position, text_info, font, background_opacity=128, shift_x=5, shift_y=20)
         #draw.text(text_position, f"Cursor Pos: {cursor_position} | Last Key: {current_last_key} | Timestamp: {image_timestamp} ", fill="white")
 
         screenshot_file_path = f"{logging_folder}/{timestamp}.png"
