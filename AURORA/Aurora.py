@@ -2012,6 +2012,7 @@ def add_grid_to_screenshot(image, grid_interval):
 
 # Function to add a dot grid with labeled coordinates
 def add_grid_to_screenshot2(image, grid_interval):
+    print("Starting add_grid_to_screenshot2 function")
     draw = ImageDraw.Draw(image)
 
     # Customize the font size
@@ -2024,19 +2025,33 @@ def add_grid_to_screenshot2(image, grid_interval):
         print("Font file not found. Falling back to default font.")
         font = ImageFont.load_default()  # Fallback to default font if TrueType font not found
 
-    # Draw dots and coordinates
+    screen_width, screen_height = image.size
+
+    # Define key points to label
+    key_points = [
+        (150, 150), (450, 150), (150, 450), (450, 450),
+        (900, 150), (1200, 150), (900, 450), (1200, 450),
+        (600, 750), (1050, 750), (1350, 750)
+    ]
+
+    # Draw dots and coordinates with background boxes on the top row, left column, and key points
     for x in range(0, screen_width, grid_interval):
         for y in range(0, screen_height, grid_interval):
             draw.ellipse((x-2, y-2, x+2, y+2), fill="red", outline="red")  # Draw the dot
-            coordinate_label = f"{x},{y}"
-            #draw.text((x + 5, y - 15), coordinate_label, fill="white", font=font)
-            draw_text_with_background(draw, (x + 5, y - 15), coordinate_label, font, background_opacity=128, shift_x=5, shift_y=20)
+            if (x == 0 or y == 0) or (x, y) in key_points:  # Top row, left column, or key points
+                coordinate_label = f"{x},{y}"
+                #print(f"Drawing coordinate label: {coordinate_label} at ({x + 5}, {y - 15})")
+                draw_text_with_background(draw, (x + 5, y - 15), coordinate_label, font, background_opacity=128, shift_x=5, shift_y=20)
+    print("Finished add_grid_to_screenshot2 function")
+
 
 def draw_cursor(draw, cursor_position, cursor_size):
     # Define colors
     outer_color = "black"
     inner_color = "white"
-    circle_color = "red"
+    large_circle_color = "red"
+    medium_circle_color = "red"
+    small_circle_color = "blue"
 
     # Outer rectangle (black outline)
     outer_rectangle = [cursor_position.x - 1, cursor_position.y - 1, cursor_position.x + cursor_size + 1, cursor_position.y + cursor_size + 1]
@@ -2051,9 +2066,49 @@ def draw_cursor(draw, cursor_position, cursor_size):
     draw.line([cursor_position.x, cursor_position.y + cursor_size, cursor_position.x + cursor_size, cursor_position.y], fill=outer_color)
 
     # Draw the red circle around the cursor
-    radius = cursor_size + 5  # Adjust the radius as needed
-    circle_bounds = [cursor_position.x - radius, cursor_position.y - radius, cursor_position.x + cursor_size + radius, cursor_position.y + cursor_size + radius]
-    draw.ellipse(circle_bounds, outline=circle_color, width=2)
+    large_radius = cursor_size + 3  # Adjust the radius as needed
+    large_circle_bounds = [cursor_position.x - large_radius, cursor_position.y - large_radius, cursor_position.x + cursor_size + large_radius, cursor_position.y + cursor_size + large_radius]
+    draw.ellipse(large_circle_bounds, outline=large_circle_color, width=2)
+
+    # Calculate the center of the square
+    center_x = cursor_position.x + cursor_size / 2
+    center_y = cursor_position.y + cursor_size / 2
+
+    # Draw the medium red circle that the box fits into perfectly
+    medium_radius = (cursor_size / 2) * (2 ** 0.5)  # sqrt(2) times the half size of the square
+    medium_circle_bounds = [center_x - medium_radius, center_y - medium_radius, center_x + medium_radius, center_y + medium_radius]
+    draw.ellipse(medium_circle_bounds, outline=medium_circle_color, width=2)
+
+    # Draw the smaller blue circle that circumscribes the square reticle
+    small_radius = cursor_size / 2
+    small_circle_bounds = [center_x - small_radius, center_y - small_radius, center_x + small_radius, center_y + small_radius]
+    draw.ellipse(small_circle_bounds, outline=small_circle_color, width=2)
+
+    # Add cursor coordinates with background
+    screen_width, screen_height = draw.im.size
+    text_color = "white"
+    background_color = (0, 128, 0)  # Greenish background color
+    background_opacity = 128
+
+    # Customize the font size
+    font_size = 23
+    # Load a TrueType font with the specified size
+    try:
+        font = ImageFont.truetype(FONT_PATH, font_size)
+    except IOError:
+        print("Font file not found. Falling back to default font.")
+        font = ImageFont.load_default()  # Fallback to default font if TrueType font not found
+
+    # Calculate position for text
+    shift_x, shift_y = 5, 20
+    text_position = (cursor_position.x + shift_x, cursor_position.y + shift_y)
+    if cursor_position.x + shift_x + 100 > screen_width:
+        shift_x = -100  # Adjust shift to place text on the left
+    if cursor_position.y + shift_y + 20 > screen_height:
+        shift_y = -30  # Adjust shift to place text above
+
+    cursor_text = f"({cursor_position.x}, {cursor_position.y})"
+    draw_text_with_background(draw, text_position, cursor_text, font, text_color, background_color, background_opacity, shift_x, shift_y)
 
 #def draw_text_with_background(draw, position, text, font, text_color="white", background_color="black", background_opacity=58, shift_x=5, shift_y=20):
 #    # Calculate text size
@@ -2076,13 +2131,11 @@ def draw_cursor(draw, cursor_position, cursor_size):
 #    # Draw the text over the background rectangle
 #    draw.text((position[0] + shift_x, position[1] + shift_y), text, fill=text_color, font=font)
 
-def draw_text_with_background(draw, position, text, font, text_color="white", background_color="black", background_opacity=128, shift_x=5, shift_y=20):
-    print("Starting draw_text_with_background function")
+def draw_text_with_background(draw, position, text, font, text_color="white", background_color=(0, 0, 0), background_opacity=128, shift_x=5, shift_y=20):
     # Calculate text size using textbbox
     text_bbox = draw.textbbox(position, text, font=font)
     text_width = text_bbox[2] - text_bbox[0]
     text_height = text_bbox[3] - text_bbox[1]
-    print(f"text_bbox: {text_bbox}, text_width: {text_width}, text_height: {text_height}")
     
     # Set padding around the text
     padding = 4
@@ -2094,36 +2147,22 @@ def draw_text_with_background(draw, position, text, font, text_color="white", ba
         position[0] + text_width + padding + shift_x,
         position[1] + text_height + padding + shift_y
     )
-    print(f"background_position: {background_position}")
 
     # Create a transparent image for the background
     background_image = Image.new('RGBA', draw.im.size, (0, 0, 0, 0))
-    print(f"background_image: {background_image}")
     background_draw = ImageDraw.Draw(background_image)
-    background_color_with_opacity = (0, 0, 0, background_opacity)
+    background_color_with_opacity = (background_color[0], background_color[1], background_color[2], background_opacity)
     background_draw.rectangle(background_position, fill=background_color_with_opacity)
-    print("Drawn background rectangle")
 
     # Extract the alpha channel from the background image
     alpha = background_image.split()[3]
-    print(f"alpha channel: {alpha}")
-
-    # Ensure alpha is an ImagingCore object
-    print(f"alpha.im: {alpha.im}, type: {type(alpha.im)}")
 
     # Composite the transparent background onto the original image using paste with a mask
     bounding_box = (0, 0, draw.im.size[0], draw.im.size[1])
-    print(f"bounding_box: {bounding_box}")
     draw.im.paste(background_image.im, bounding_box, alpha.im)
-    print("Pasted background image with alpha mask")
 
     # Draw the text over the background rectangle
     draw.text((position[0] + shift_x, position[1] + shift_y), text, fill=text_color, font=font)
-    print("Text drawn over background rectangle")
-    print("Finished draw_text_with_background function")
-
-
-
 
 
 
@@ -2164,7 +2203,7 @@ def take_screenshot():
         # Add the grid with labeled coordinates
         #add_grid_to_screenshot(screenshot, grid_interval=150)  # Set grid_interval as needed
         # Draw the grid with labeled coordinates
-        text_info = f"Cursor Pos: {cursor_position} | Last Key: {current_last_key} | Timestamp: {image_timestamp}"
+        text_info = f"Cursor Position: {cursor_position} | Last Key: {current_last_key} | Timestamp: {image_timestamp}"
         add_grid_to_screenshot2(screenshot, grid_interval=150)  # Set grid_interval as needed
 
 
@@ -2188,7 +2227,6 @@ def take_screenshot():
         # Now, we send the prompt and include the screenshot file path
         #send_prompt_to_chatgpt("Here's a screenshot of my entire screen. Lets play Pokemon Blue in the VBA emulator. :3 We will play with individual button presses. Please simply reply to screenshots with only a command. VKPAG:click for example. If you need help, or have questions then ask away, but always be concise. with one or a short series set of individual button presses in response to each image. images will only update after a response is obtain from here. Display is 1920 X 1080 Landscape. ie click on folder/app called at mouse position x, y via move,x,y; leftclick; x,y select open keys in VBA emulator are Up: Up Arrow Please pretend like there is a parser listening for key commands and mouse commands the format from handle_commands of VKPAG:(PYAUTOGUI KEYBOARD/mouse commands, arguments);  VKPAG:hold_shift,1.5;move(100,200); rightClick(100,200); click(100,200)", screenshot_file_path)
         send_prompt_to_chatgpt("please respond '", role="user", image_path= screenshot_file_path, image_timestamp=image_timestamp)  #image_timestamp might be buggy
-
         #auto_prompt_response = send_prompt_to_chatgpt("meow ")
         #send_prompt_to_chatgpt(auto_prompt_response)
        # send_prompt_to_chatgpt("auto prompt:", screenshot_file_path)
