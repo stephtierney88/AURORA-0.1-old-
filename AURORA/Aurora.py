@@ -2031,18 +2031,20 @@ def add_grid_to_screenshot2(image, grid_interval):
     key_points = [
         (150, 150), (450, 150), (150, 450), (450, 450),
         (900, 150), (1200, 150), (900, 450), (1200, 450),
-        (600, 750), (1050, 750), (1350, 750)
+        (600, 750), (1050, 750), (1350, 300), (1350, 600),
+         (1350, 750), (750, 300)
     ]
 
     # Draw dots and coordinates with background boxes on the top row, left column, and key points
+    # Draw larger dots and coordinates with background boxes on the top row, left column, and key points
     for x in range(0, screen_width, grid_interval):
         for y in range(0, screen_height, grid_interval):
-            draw.ellipse((x-2, y-2, x+2, y+2), fill="red", outline="red")  # Draw the dot
+            draw.ellipse((x-4, y-4, x+4, y+4), fill="red", outline="red")  # Draw the larger dot
             if (x == 0 or y == 0) or (x, y) in key_points:  # Top row, left column, or key points
                 coordinate_label = f"{x},{y}"
-                #print(f"Drawing coordinate label: {coordinate_label} at ({x + 5}, {y - 15})")
                 draw_text_with_background(draw, (x + 5, y - 15), coordinate_label, font, background_opacity=128, shift_x=5, shift_y=20)
     print("Finished add_grid_to_screenshot2 function")
+
 
 
 def draw_cursor(draw, cursor_position, cursor_size):
