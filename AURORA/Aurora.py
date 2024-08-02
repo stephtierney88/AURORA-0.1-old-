@@ -1270,7 +1270,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
         tokens_in_message = len(list(tokenizer.encode(command_input)))
         token_counter = tokens_in_message
         print(f"Current token count in chat history e2: {token_count}")
-        if token_counter > 0.85 * token limit and token counter < token limit:
+        if token_counter > 0.85 * token_limit and token_counter < token_limit:
             print("Warning: Approaching token limit! Chat history will be saved.")  
         elif token_counter >= token limit:
             print("Token limit reached! Chat history saved and non-pinned messages will be cleared.")
