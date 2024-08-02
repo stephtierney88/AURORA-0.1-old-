@@ -750,7 +750,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
     global latest_image_detail
     global High_Detail
     global MAX_IMAGES_IN_HISTORY
-    #print(f"STCGPT1")
+    
     # Check if commands should be disabled
     if command_input.startswith('/*'):
         disable_commands = True
@@ -760,28 +760,24 @@ def handle_commands(command_input, is_user=True, exemption=None):
         disable_commands = False
         display_message("system", "Command processing is now enabled.")
         return
-    #print(f"STCGPT2")
+    
     # If commands are disabled, ignore the rest
     if disable_commands:
         display_message("system", "Command processing is currently disabled.")
         return
-    #print(f"STCGPT3")
 
     if command_input is None:
         return
-    #print(f"STCGPT4")
 
     # Update the last_command with the current command
-    # Make sure `last_command` is also defined globally if needed
     global last_command
     last_command = command_input
     command = None  # Define command before the try block
     try:
-
         commands = command_input.split(';')
         for command in commands:
             command = command.strip()
-            if not command:
+            if not command or command.startswith('#'):
                 continue
 
             try:
@@ -794,127 +790,8 @@ def handle_commands(command_input, is_user=True, exemption=None):
                     args = []
                     cmd = command.lower()
 
-                if cmd in ["press", "hold"]:
-                    key = args[0].strip().lower()
-                    if key in pyautogui.KEYBOARD_KEYS:
-                        if cmd == "press":
-                            pyautogui.press(key)
-                            display_message("system", f"Key pressed: {key}")
-                        elif cmd == "hold":
-                            duration = float(args[1]) if len(args) > 1 else None
-                            pyautogui.keyDown(key)
-                            if duration:
-                                pyautogui.sleep(duration)
-                                pyautogui.keyUp(key)
-                            display_message("system", f"Key held for {duration} seconds: {key}")
-                    else:
-                        display_message("error", f"Invalid key name: {key}")
-
-                elif cmd == "move":
-                    try:
-                        x, y = map(int, args)
-                        if 0 <= x <= screen_width and 0 <= y <= screen_height:
-                            pyautogui.moveTo(x, y)
-                            display_message("system", f"Cursor moved to ({x}, {y})")
-                        else:
-                            raise ValueError("Coordinates out of screen bounds")
-                    except ValueError:
-                        display_message("error", "Invalid coordinates for move command")
-
-                elif cmd == "drag":
-                    x, y, duration = map(float, args)
-                    pyautogui.dragTo(x, y, duration)
-                    display_message("system", f"Dragged to ({x}, {y}) in {duration} seconds")
-
-                elif cmd.startswith("scroll"):
-                    direction_units = cmd.split('_')
-                    units = int(args[0]) if args else default_scroll_amount
-                    if "down" in direction_units:
-                        pyautogui.scroll(-units)
-                    else:
-                        pyautogui.scroll(units)
-                    display_message("system", f"Scrolled {'down' if 'down' in direction_units else 'up'} {units} units")
-
-                elif cmd == "release":
-                    key = args[0]
-                    if key.lower() == "plus":
-                        pyautogui.keyUp('+')
-                        display_message("system", f"Plus key released.")
-                    else:
-                        pyautogui.keyUp(key)
-                        display_message("system", f"Key released: {key}")
-
-                elif cmd == "hotkey":
-                    pyautogui.hotkey(*args)
-                    display_message("system", f"Hotkey executed: {'+'.join(args)}")
-
-                elif cmd == "type":
-                    text = args[0]
-                    pyautogui.write(text)
-                    display_message("system", f"Text typed: {text}")
-
-                elif cmd == "multi_press":
-                    keys = [key.strip().lower() for key in args if key.strip().lower() in pyautogui.KEYBOARD_KEYS]
-                    if keys:
-                        pyautogui.hotkey(*keys)
-                        display_message("system", f"Simultaneously pressed keys: {', '.join(keys)}")
-                    else:
-                        display_message("error", "Invalid keys for multi_press command")
-
-                elif cmd == "multi_hold":
-                    keys = [key.strip().lower() for key in args if key.strip().lower() in pyautogui.KEYBOARD_KEYS]
-                    if keys:
-                        for key in keys:
-                            pyautogui.keyDown(key)
-                        display_message("system", f"Keys held down: {', '.join(keys)}")
-                    else:
-                        display_message("error", "Invalid keys for multi_hold command")
-
-                elif cmd == "multi_release":
-                    keys = [key.strip().lower() for key in args if key.strip().lower() in pyautogui.KEYBOARD_KEYS]
-                    if keys:
-                        for key in keys:
-                            pyautogui.keyUp(key)
-                        display_message("system", f"Keys released: {', '.join(keys)}")
-                    else:
-                        display_message("error", "Invalid keys for multi_release command")
-
-                elif cmd == "click" or cmd == "leftclick":
-                    count = int(args[0]) if args and args[0].isdigit() else 1
-                    for _ in range(count):
-                        if enable_human_like_click:
-                            human_like_click(pyautogui.position().x, pyautogui.position().y)
-                        else:
-                            pyautogui.click()
-                    display_message("system", f"Executed {count} click(s)")
-
-                elif cmd == "doubleclick":
-                    count = int(args[0]) if args and args[0].isdigit() else 1
-                    for _ in range(count):
-                        pyautogui.doubleClick(interval=default_double_click_speed)
-                    display_message("system", f"Executed {count} click(s)")
-
-                elif cmd == "hold_click":
-                    duration = float(args[0]) if args else 1.0
-                    pyautogui.mouseDown()
-                    pyautogui.sleep(duration)
-                    pyautogui.mouseUp()
-                    display_message("system", f"Held click for {duration} seconds")
-
-                elif cmd == "screenshot" and len(args) == 2:
-                    x, y = map(int, args)
-                    screenshot = pyautogui.screenshot()
-                    screenshot.save(f'screenshot_{x}_{y}.png')
-                    display_message("system", f"Screenshot saved as screenshot_{x}_{y}.png")
-
-                elif len(args) == 3:
-                    cmd, x, y = args
-                    x, y = map(int, [x, y])
-                    if cmd.lower() in ["double_click", "doubleclick", "click"]:
-                        pyautogui.doubleClick(x, y)
-                    elif cmd.lower() in ["right_click", "rightclick"]:
-                        pyautogui.rightClick(x, y)
-                    display_message("system", f"Executed cursor command: {cmd} at ({x}, {y})")
+                if cmd.startswith('PYAG:'):
+                    handle_pyautogui_command(cmd[5:], args)
 
                 elif cmd == "toggle_image_detail":
                     image_detail = "high" if image_detail == "low" else "low"
@@ -968,7 +845,6 @@ def handle_commands(command_input, is_user=True, exemption=None):
                     except IndexError:
                         display_message("error", "No value provided for latest_image_detail.")
 
-
                 else:
                     raise ValueError("Invalid command format")
 
@@ -976,47 +852,39 @@ def handle_commands(command_input, is_user=True, exemption=None):
 
             except Exception as e:
                 display_message("system", f"Output: {command}. Error: {str(e)}.")
-      
-        # Edits single or multiple msgs via timestamp
+
         if command_input.lower() in ("edit msgs"):
             edit_commands = command_input[9:].split(';')
             for edit_command in edit_commands:
                 try:
-                    # Assuming timestamp is at the end of the string, and split by space
                     components = edit_command.strip().split(' ')
                     timestamp = components[-1]
                     new_content = ' '.join(components[:-1]).strip()
-        
+
                     found = False
                     for entry in chat_history:
                         if entry['timestamp'] == timestamp:
-                            # Update timestamp to the current time
-                            # Preserve the exemption status unless explicitly changed
                             current_exemption = entry.get('Exemption', 'None')
                             entry['Exemption'] = current_exemption
                             current_time = datetime.datetime.now()
                             new_timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S')
-                            # Preserve the exemption status
-                            current_exemption = entry.get('Exemption', 'None')        
-                            # Calculate the new token count
-                            new_token_count = len(new_content.split())  # assuming each word is a token
-                            
-                            # Update the content, timestamp, and token_count in the entry
-                            entry['content'] = {'type': 'text', 'text': f"Edited: {new_content} {new_token_count} {new_timestamp}"}                          
+                            new_token_count = len(new_content.split())
+
+                            entry['content'] = {'type': 'text', 'text': f"Edited: {new_content} {new_token_count} {new_timestamp}"}
                             entry['token_count'] = new_token_count
                             entry['timestamp'] = new_timestamp
                             entry['Exemption'] = current_exemption
                             found = True
                             break
-                        
+
                     if found:
                         print(f"Message with timestamp {timestamp} edited successfully!")
-                        update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+                        update_chat_history('system', command_input)
                     else:
                         print(f"No message found with timestamp {timestamp}.")
                 except ValueError:
                     print(f"Invalid edit command format: {edit_command}. Correct format is 'new content timestamp'")
-    
+
         if command_input.startswith('toggle_always'):
             params = command_input.split()[1:]
             if len(params) == 2:
@@ -1025,55 +893,27 @@ def handle_commands(command_input, is_user=True, exemption=None):
             else:
                 print("Invalid number of parameters. Usage: toggle_always on|off true|false")
 
+            update_chat_history('system', command_input)
 
-                update_chat_history('system', command_input)  # Log the command
-
-
-# Example usage:
-#handle_commands("MIXEDCMD: press(enter); move(100,200); click; type(Hello, World!); hold(shift,2); drag(150,150,2); scroll_down(800)")
-
-
-
-        
         if command_input.startswith("TOGGLE_POWER_WORD"):
             REQUIRE_POWER_WORD = not REQUIRE_POWER_WORD
             display_message("system", f"POWER_WORD requirement toggled to {'ON' if REQUIRE_POWER_WORD else 'OFF'}.")
             return
 
-
-
-                    #
-                    #    # A dictionary mapping special key strings to their pyautogui functions
-                    #    special_keys = {
-                    #        "plus": '+',
-                    #        "enter": 'enter',
-                    #        "shift": 'shift',
-                    #        "ctrl": 'ctrl',
-                    #        # Add other special keys here as necessary
-
-
-
-
         if command_input.startswith('INIT'):
-            # Remove any previous Pinned Init summary
             chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Init summary')]
-            # Add new Pinned Init summary
             init_summary = command_input[5:]
             update_chat_history('user', f'Pinned Init summary: {init_summary}')
             print(f"Pinned Init summary: {init_summary}")
-            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+            update_chat_history('system', command_input)
 
         if command_input.startswith("PIN"):
             exemption_context = command_input[4:].strip()
-            exemption_type = "Pinned"  # or other types like "Init", "Handoff", "Special" based on your logic
+            exemption_type = "Pinned"
             display_message("assistant", f'Exemption: {exemption_context}', include_command=True)
             update_chat_history('assistant', {'type': 'text', 'text': f'Exemption: {exemption_context}'}, exemption=exemption_type)
             update_chat_history('system', command_input)
-        
 
-
-
-#removes multiple msgs from chat history using a start and end timestamps
         if command_input.startswith("REMOVE_MSGS"):
             try:
                 _, time_range = command_input.split("REMOVE_MSGS", 1)
@@ -1089,7 +929,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
 
                 chat_history = [msg for msg in chat_history if msg not in messages_to_remove]
                 print(f"Removed {len(messages_to_remove)} messages from the chat history.")
-                update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+                update_chat_history('system', command_input)
             except Exception as e:
                 print(f"Error processing the REMOVE_MSGS command: {e}")
                 
@@ -1106,7 +946,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
                 handoff_summary = file.read().strip()
             if any(entry['content'].startswith(f'Pinned Handoff context: {handoff_summary}') for entry in chat_history):
                 print("Handoff summary already in chat history.")
-                return  # This was indented incorrectly
+                return
             chat_history.append({'role': 'assistant', 'content': f'Pinned Handoff context: {handoff_summary}'})
             print(f"Pinned Handoff context from file: {handoff_summary}")
         
@@ -1138,135 +978,89 @@ def handle_commands(command_input, is_user=True, exemption=None):
 
         if command_input.startswith("RECALL"):
             recall_previous_summary(character_name)
-            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
-
+            update_chat_history('system', command_input)
 
         if command_input.lower() in ("clear_nopin%"):
-            try:  # This try was missing
+            try:
                 percentage_to_clear = float(command_input[12:].strip()) / 100
                 if 0 <= percentage_to_clear <= 1:
                     clear_chat_history_except_pinned(percentage_to_clear)
-                    update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+                    update_chat_history('system', command_input)
                 else:
                     print("Invalid percentage. Please enter a number between 0 and 100.")
             except ValueError:
-                print("Invalid command format.", percentage_to_clear,  "Expected format is 'CLEAR_NOPIN%{number}'.")
-
-
-
+                print("Invalid command format. Expected format is 'CLEAR_NOPIN%{number}'.")
 
         if command_input.startswith("CLEAR%"):
-        # Extract the percentage value from the command
             try:
                 percentage_to_clear = float(command_input[6:].strip()) / 100
                 if 0 <= percentage_to_clear <= 1:
                     clear_chat_history(percentage_to_clear)
-                    update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+                    update_chat_history('system', command_input)
                 else:
                     print("Invalid percentage. Please enter a number between 0 and 100.")
             except ValueError:
                 print("Invalid command format. Expected format is 'CLEAR%{number}'.")
 
         if command_input.lower() in ("CLEAR ALL MESSAGES"):
-        # Keep only the Pinned Init summary, Pinned Handoff context, and Pinned Messages w exemptions
             chat_history = [
-    entry for entry in chat_history 
-    if 'text' in entry['content'] and 
-    (entry['content']['text'].startswith('Pinned Init summary') or 
-     entry['content']['text'].startswith('Pinned Handoff context'))
-]
-
+                entry for entry in chat_history 
+                if 'text' in entry['content'] and 
+                (entry['content']['text'].startswith('Pinned Init summary') or 
+                entry['content']['text'].startswith('Pinned Handoff context'))
+            ]
             print("Chat history cleared, only pinned summaries remain.")
-            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+            update_chat_history('system', command_input)
+
         if command_input.lower() in ("CLEAR INIT"):
-            # Clears the Init summary
             chat_history = [
-    entry for entry in chat_history 
-    if 'text' in entry['content'] and 
-    not entry['content']['text'].startswith('Pinned Init summary')
-]
+                entry for entry in chat_history 
+                if 'text' in entry['content'] and 
+                not entry['content']['text'].startswith('Pinned Init summary')
+            ]
             print("Chat history cleared, Init summaries removed.") 
-            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
-
-
-
-
-
-
-
+            update_chat_history('system', command_input)
 
         if command_input.lower() in ("CLEAR PIN"):
             chat_history = [entry for entry in chat_history if entry.get('Exemption') != 'Pinned']
             print("Pinned messages cleared.")
             update_chat_history('system', command_input)
 
-
-
-
-
-
-
-
-
-
-
-
-
         if command_input.lower() in ("CLEAR HANDOFF"):
-            # Clears the Init summary
             chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Handoff context')]
-            print("Chat history cleared, Init summaries removed.")     
-        
+            print("Chat history cleared, Handoff summaries removed.")     
 
-
-
-
-        #deletes a specific msg from chathistory via timestamp
         if command_input.startswith("DELETE_MSG:"):
             timestamp = command_input[11:].strip()
             chat_history = [entry for entry in chat_history if entry['timestamp'] != timestamp]
             print(f"Message with timestamp {timestamp} deleted successfully!")
-            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
-
-        
-
-
-
-
+            update_chat_history('system', command_input)
 
         if command_input.startswith('SAVEPINNEDINIT'):
             pinned_init_summaries = [entry['content']['text'][19:] for entry in chat_history if isinstance(entry['content'], dict) and entry['content']['text'].startswith('Pinned Init summary')]            
             write_content_to_file("\n".join(pinned_init_summaries), "pinned_init_summaries.txt")
-            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
-
-
-
-
-
-
-
-
+            update_chat_history('system', command_input)
 
         if command_input.startswith('SAVEPINNEDHANDOFF'):
             pinned_handoff_contexts = [entry['content'][22:] for entry in chat_history if entry['content'].startswith('Pinned Handoff context')]
             write_content_to_file("\n".join(pinned_handoff_contexts), "pinned_handoff_contexts.txt")
-            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+            update_chat_history('system', command_input)
 
         if command_input.startswith('SAVEEXEMPTIONS'):
             exemptions = [entry['content'][10:] for entry in chat_history if entry['content'].startswith('Exemption')]
             write_content_to_file("\n".join(exemptions), "exemptions.txt")
-            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
-        print("meow1")
+            update_chat_history('system', command_input)
+
         if command_input.startswith('SAVE PINS'):
             pinned_entries = [entry['content'] for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Exemption') or entry['content'].startswith('Pinned Handoff context')]
             write_content_to_file("\n".join(pinned_entries), "pinned_entries.txt")
-            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
-
+            update_chat_history('system', command_input)
 
         if command_input.startswith('SAVE ALL PINS'):
             all_entries = [f"{entry['role']}: {entry['content']}" for entry in chat_history]
             write_content_to_file("\n".join(all_entries), "all_entries.txt")
-            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+            update_chat_history('system', command_input)
+
         if command_input == 'HELP_VISIBILITY':
             display_message("system", """
             HIDE - Toggle the visibility of user text.
@@ -1276,88 +1070,80 @@ def handle_commands(command_input, is_user=True, exemption=None):
             TOGGLE_IMSGS - Toggle visibility of important messages by all, and prevents them from appending chat history
                 important messages being PINS, INITS, HANDOFF.
             TOGGLE_UMSGS - Toggle visibility of unimportant by all, and prevents them from appending chat history
-            
-                            
+            """)
+            update_chat_history('system', command_input)
 
-
-
-    """)
-            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
-        if command_input.startswith(('HELP', '/HELP', '/?', '~help', '/help', '-h', '--help','/man', '-man','--man','-manual','--manual','/manual','-manual', '/info', '-info', '--info', '-?', '--?')):
+        if command_input.startswith(('HELP', '/HELP', '/?', '~help', '/help', '-h', '--help', '/man', '-man', '--man', '-manual', '--manual', '/manual', '-manual', '/info', '-info', '--info', '-?', '--?')):
             display_message("system", """
-    Here is the list of available commands and their descriptions:
+            Here is the list of available commands and their descriptions:
 
-    -/? or HELP 
-    
-    - "/* escape command
-      "*/" ends escape command
+            -/? or HELP 
+
+            - "/* escape command
+              "*/" ends escape command
                             
+            - HIDE_USER_TEXT: Toggle the visibility of user text. 
+              Usage: POWER_WORD HIDE_USER_TEXT
 
-                            
-    - HIDE_USER_TEXT: Toggle the visibility of user text. 
-      Usage: POWER_WORD HIDE_USER_TEXT
+            - HIDE_AI_TEXT: Toggle the visibility of AI responses.
+              Usage: POWER_WORD HIDE_AI_TEXT
 
-    - HIDE_AI_TEXT: Toggle the visibility of AI responses.
-      Usage: POWER_WORD HIDE_AI_TEXT
+            - HIDE_AI_COMMANDS: Toggle the visibility of commands given by the AI.
+              Usage: POWER_WORD HIDE_AI_COMMANDS
 
-    - HIDE_AI_COMMANDS: Toggle the visibility of commands given by the AI.
-      Usage: POWER_WORD HIDE_AI_COMMANDS
+            - HIDE_USER_COMMANDS: Toggle the visibility of commands issued by the user.
+              Usage: POWER_WORD HIDE_USER_COMMANDS
 
-    - HIDE_USER_COMMANDS: Toggle the visibility of commands issued by the user.
-      Usage: POWER_WORD HIDE_USER_COMMANDS
+            - TOGGLE_IMSGS: Toggle visibility of important messages by all, and prevents them from appending to chat history.
+              Important messages include PINS, INITS, HANDOFF.
+              Usage: POWER_WORD TOGGLE_IMSGS
 
-    - TOGGLE_IMSGS: Toggle visibility of important messages by all, and prevents them from appending to chat history.
-      Important messages include PINS, INITS, HANDOFF.
-      Usage: POWER_WORD TOGGLE_IMSGS
+            - TOGGLE_UMSGS: Toggle visibility of unimportant messages by all, and prevents them from appending to chat history.
+              Usage: POWER_WORD TOGGLE_UMSGS
 
-    - TOGGLE_UMSGS: Toggle visibility of unimportant messages by all, and prevents them from appending to chat history.
-      Usage: POWER_WORD TOGGLE_UMSGS
+            - VKB_CMD: Execute a series of keyboard commands. Commands should be separated by a semicolon.
+              Example: POWER_WORD VKB_CMD: hold_A,0.5; B+SHIFT; C
 
-    - VKB_CMD: Execute a series of keyboard commands. Commands should be separated by a semicolon.
-      Example: POWER_WORD VKB_CMD: hold_A,0.5; B+SHIFT; C
+            - CURSORCMD: Execute a series of cursor commands. Commands should be separated by a semicolon.
+              Example: POWER_WORD CURSORCMD: move,100,200; click,300,400
 
-    - CURSORCMD: Execute a series of cursor commands. Commands should be separated by a semicolon.
-      Example: POWER_WORD CURSORCMD: move,100,200; click,300,400
-                            
-        - INIT: Clears any existing 'Pinned Init summary' from the chat history and adds a new one.
-      Usage: INIT {your summary here}
+            - INIT: Clears any existing 'Pinned Init summary' from the chat history and adds a new one.
+              Usage: INIT {your summary here}
 
-    - RETRIEVE_HANDOFF: Retrieves a handoff summary from a specified file and adds it to the chat history, if not already present.
-      Usage: RETRIEVE_HANDOFF_{filename}
-                    
-    - PIN: Add a new exemption context.
-      Example: POWER_WORD PIN This is an exemption context.
+            - RETRIEVE_HANDOFF: Retrieves a handoff summary from a specified file and adds it to the chat history, if not already present.
+              Usage: RETRIEVE_HANDOFF_{filename}
+                        
+            - PIN: Add a new exemption context.
+              Example: POWER_WORD PIN This is an exemption context.
 
-    - HANDOFF: Pin a handoff context.
-      Example: POWER_WORD HANDOFF This is a handoff context.
+            - HANDOFF: Pin a handoff context.
+              Example: POWER_WORD HANDOFF This is a handoff context.
 
-    - CLEAR_NOPIN%: Clears a specified percentage of messages that are not pinned from the chat history.
-      Usage: CLEAR_NOPIN%{number}
+            - CLEAR_NOPIN%: Clears a specified percentage of messages that are not pinned from the chat history.
+              Usage: CLEAR_NOPIN%{number}
 
-    - CLEAR_NON_PINNED: Clears all messages that are not pinned (not starting with 'Pinned Init summary', 'Pinned Handoff context', or 'Exemption') from the chat history.
-      Usage: CLEAR_NON_PINNED
+            - CLEAR_NON_PINNED: Clears all messages that are not pinned (not starting with 'Pinned Init summary', 'Pinned Handoff context', or 'Exemption') from the chat history.
+              Usage: CLEAR_NON_PINNED
 
-    - CLEAR%: Clears a specified percentage of messages from the chat history.
-      Usage: CLEAR%{number}
+            - CLEAR%: Clears a specified percentage of messages from the chat history.
+              Usage: CLEAR%{number}
 
-    - CLEARALL: Clears all messages except those that start with 'Pinned Init summary' or 'Pinned Handoff context' from the chat history.
-      Usage: CLEARALL
+            - CLEARALL: Clears all messages except those that start with 'Pinned Init summary' or 'Pinned Handoff context' from the chat history.
+              Usage: CLEARALL
 
-    - EDIT_MSGS: Allows you to edit one or multiple messages based on their timestamps.
-      Usage: EDIT_MSGS timestamp~|~|~new content;timestamp~|~|~new content
+            - EDIT_MSGS: Allows you to edit one or multiple messages based on their timestamps.
+              Usage: EDIT_MSGS timestamp~|~|~new content;timestamp~|~|~new content
 
-    - REMOVE_MSGS: Removes multiple messages from the chat history based on a start and end timestamp range.
-      Usage: REMOVE_MSGS {start timestamp} to {end timestamp}
+            - REMOVE_MSGS: Removes multiple messages from the chat history based on a start and end timestamp range.
+              Usage: REMOVE_MSGS {start timestamp} to {end timestamp}
 
-    - DELETE_MSG: Deletes a specific message from the chat history based on its timestamp.
-      Usage: DELETE_MSG:{timestamp}
+            - DELETE_MSG: Deletes a specific message from the chat history based on its timestamp.
+              Usage: DELETE_MSG:{timestamp}
 
-    - DISPLAY_HISTORY: Displays the entire chat history with timestamps and roles.
-      Usage: DISPLAY_HISTORY
-
-    
-    """)
-            update_chat_history('system', command_input)  # Assuming this is where you want to log the command
+            - DISPLAY_HISTORY: Displays the entire chat history with timestamps and roles.
+              Usage: DISPLAY_HISTORY
+            """)
+            update_chat_history('system', command_input)
 
         if command_input.lower() == 'hide user text':
             show_user_text = not show_user_text
@@ -1411,7 +1197,6 @@ def handle_commands(command_input, is_user=True, exemption=None):
             CHECK_IMSGS_DECAY = not CHECK_IMSGS_DECAY
             print(f"Important messages decay check toggled to {'ON' if CHECK_IMSGS_DECAY else 'OFF'}.")
 
-
         if not enable_unimportant_messages and is_unimportant_message(command_input, exemption=exemption):
             return    
         
@@ -1423,112 +1208,195 @@ def handle_commands(command_input, is_user=True, exemption=None):
             display_message("system", f"Skipping adding commands to chat history: {SKIP_ADDING_COMMANDS_TO_CHAT_HISTORY}")
             return
 
-        #if command_input.startswith("DISPLAYHISTORY") or command_input.lower() in ('displayhistory', 'display_history', '-ch', '-dh', '~ch', '~dh'):
-        #    if chat_history:
-        #        for entry in chat_history:
-        #            timestamp = entry.get('timestamp', 'No timestamp')
-        #            role = entry.get('role', 'No role')
-        #            # Check if content is a dictionary and has 'text' as a key
-        #            content = entry.get('content', {})
-        #            if isinstance(content, dict) and 'text' in content:
-        #                message = content['text']
-        #            else:
-        #                message = 'No content'
-        #            print(f"{timestamp} - {role}: {message}")
-        #    else:
-        #        print("No messages in the chat history.")    
-        #                # If none of the commands match
         if command_input.startswith("SAVECH"):
             save_chat_history_to_file(chat_history, 'chat_history')
             display_message("system", "Chat history saved to chat_history.txt.")
             return
         
         if command_input.startswith("DHISTORY"):
-                if chat_history:
-                    for entry in chat_history:
-                        timestamp = entry.get('timestamp', 'No timestamp')
-                        role = entry.get('role', 'No role')
-                        token_count = entry.get('token_count', 'N/A')
-                        last_key = entry.get('last_key', 'N/A')
-                        mouse_position = entry.get('mouse_position', 'N/A')
-                        last_command = entry.get('last_command', 'N/A')
+            if chat_history:
+                for entry in chat_history:
+                    timestamp = entry.get('timestamp', 'No timestamp')
+                    role = entry.get('role', 'No role')
+                    token_count = entry.get('token_count', 'N/A')
+                    last_key = entry.get('last_key', 'N/A')
+                    mouse_position = entry.get('mouse_position', 'N/A')
+                    last_command = entry.get('last_command', 'N/A')
 
-                        content = entry.get('content', {})
-                        message = 'No content'
+                    content = entry.get('content', {})
+                    message = 'No content'
 
-                        if isinstance(content, dict):
-                                content_type = content.get('type')
-                                if content_type == 'text':
-                                    message = content.get('text', 'No text content')[:15] + '...'
-                                elif content_type == 'image':
-                                    # Handling for images
-                                    print("image found")
-                                    image_data = content.get('data', '')
-                                    print("DATA")
-                                    message = f"Image Data: {image_data[50:80]}..." if image_data else "Image Data: Missing or empty 'data' key"
-                                    #pass
-                                else:
-                                    # If the content type is not recognized
-                                    message = f'[Other content type: {content_type}]'                        
-
+                    if isinstance(content, dict):
+                        content_type = content.get('type')
+                        if content_type == 'text':
+                            message = content.get('text', 'No text content')[:15] + '...'
+                        elif content_type == 'image':
+                            print("image found")
+                            image_data = content.get('data', '')
+                            print("DATA")
+                            message = f"Image Data: {image_data[50:80]}..." if image_data else "Image Data: Missing or empty 'data' key"
                         else:
-                        # Treat non-dictionary content as a text string
-                           message = str(content)[:80] + '...' if content else 'Empty content'
-                        # Content is not a dictionary
-                        #    message = f'Content type is "text" but content is not a dictionary. Content: {str(content)[:50]}...'
-
-                        print(f"{timestamp} - {role}: {message}")
-                        print(f"Token Count: {token_count}, Last Key: {last_key}, Mouse Position: {mouse_position}, Last Command: {last_command}")
-                else:
-                    print("No messages in the chat history.")
+                            message = f'[Other content type: {content_type}]'                        
+                    else:
+                        message = str(content)[:80] + '...' if content else 'Empty content'
+                    print(f"{timestamp} - {role}: {message}")
+                    print(f"Token Count: {token_count}, Last Key: {last_key}, Mouse Position: {mouse_position}, Last Command: {last_command}")
+            else:
+                print("No messages in the chat history.")
     except Exception as e:
         display_message("system", f"Failed to execute command: {command}. Error: {str(e)}.")
-                
         display_message("system", " e1")
-    # Use the new display function for the AI's text
         role = "assistant" if not is_user else "user"
         if not (is_user and hide_user_commands) or (not is_user and hide_ai_commands):
-            display_message(role, command_input)#hmmmm
-            #chat_history.append({"role": "system", "content": command_input, "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
-
+            display_message(role, command_input)
+        
         token_count = count_tokens_in_history(chat_history)
         tokens_in_message = len(list(tokenizer.encode(command_input)))
         token_counter = tokens_in_message
         print(f"Current token count in chat history else1: {token_count}")
-        # Warning check: If token_counter is within 90% of the token_limit
         if token_counter > 0.85 * token_limit and token_counter < token_limit:
             print("Warning: Approaching token limit! Chat history will be saved.")  
-        # Urgent check: If token_counter has reached or exceeded token_limit
         elif token_counter >= token_limit:
             print("Token limit reached! Chat history saved and non-pinned messages will be cleared.")
-            #save_chat_history_to_file()
-            # Function to clear non-pinned messages
             clear_percentage_except_pinned_and_exempt("CLEAR%70")
             token_counter = 0   
     else:
-    # If none of the commands match
         display_message("system", " e2")
-    # Use the new display function for the AI's text
         role = "assistant" if not is_user else "user"
         if not (is_user and hide_user_commands) or (not is_user and hide_ai_commands):
-            display_message(role, command_input)#hmmmm
-            #chat_history.append({"role": "system", "content": command_input, "timestamp": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})
-
+            display_message(role, command_input)
+        
         token_count = count_tokens_in_history(chat_history)
         tokens_in_message = len(list(tokenizer.encode(command_input)))
         token_counter = tokens_in_message
         print(f"Current token count in chat history e2: {token_count}")
-        # Warning check: If token_counter is within 90% of the token_limit
         if token_counter > 0.85 * token_limit and token_counter < token_limit:
             print("Warning: Approaching token limit! Chat history will be saved.")  
-        # Urgent check: If token_counter has reached or exceeded token_limit
         elif token_counter >= token_limit:
             print("Token limit reached! Chat history saved and non-pinned messages will be cleared.")
-            #save_chat_history_to_file()
             save_chat_history_to_file(chat_history, 'chat_history')
-            # Function to clear non-pinned messages
             clear_percentage_except_pinned_and_exempt("CLEAR%70")
             token_counter = 0   
+
+
+def handle_pyautogui_command(cmd, args):
+    if cmd in ["press", "hold"]:
+        key = args[0].strip().lower()
+        if key in pyautogui.KEYBOARD_KEYS:
+            if cmd == "press":
+                pyautogui.press(key)
+                display_message("system", f"Key pressed: {key}")
+            elif cmd == "hold":
+                duration = float(args[1]) if len(args) > 1 else None
+                pyautogui.keyDown(key)
+                if duration:
+                    pyautogui.sleep(duration)
+                    pyautogui.keyUp(key)
+                display_message("system", f"Key held for {duration} seconds: {key}")
+        else:
+            display_message("error", f"Invalid key name: {key}")       
+    elif cmd == "move":
+        try:
+            x, y = map(int, args)
+            if 0 <= x <= screen_width and 0 <= y <= screen_height:
+                pyautogui.moveTo(x, y)
+                display_message("system", f"Cursor moved to ({x}, {y})")
+            else:
+                raise ValueError("Coordinates out of screen bounds")
+        except ValueError:
+            display_message("error", "Invalid coordinates for move command")       
+    elif cmd == "drag":
+        x, y, duration = map(float, args)
+        pyautogui.dragTo(x, y, duration)
+        display_message("system", f"Dragged to ({x}, {y}) in {duration} seconds")      
+    elif cmd.startswith("scroll"):
+        direction_units = cmd.split('_')
+        units = int(args[0]) if args else default_scroll_amount
+        if "down" in direction_units:
+            pyautogui.scroll(-units)
+        else:
+            pyautogui.scroll(units)
+        display_message("system", f"Scrolled {'down' if 'down' in direction_units else 'up'} {units} units")       
+    elif cmd == "release":
+        key = args[0]
+        if key.lower() == "plus":
+            pyautogui.keyUp('+')
+            display_message("system", f"Plus key released.")
+        else:
+            pyautogui.keyUp(key)
+            display_message("system", f"Key released: {key}")      
+    elif cmd == "hotkey":
+        pyautogui.hotkey(*args)
+        display_message("system", f"Hotkey executed: {'+'.join(args)}")        
+    elif cmd == "type":
+        text = args[0]
+        pyautogui.write(text)
+        display_message("system", f"Text typed: {text}")       
+    elif cmd == "multi_press":
+        keys = [key.strip().lower() for key in args if key.strip().lower() in pyautogui.KEYBOARD_KEYS]
+        if keys:
+            pyautogui.hotkey(*keys)
+            display_message("system", f"Simultaneously pressed keys: {', '.join(keys)}")
+        else:
+            display_message("error", "Invalid keys for multi_press command")       
+    elif cmd == "multi_hold":
+        keys = [key.strip().lower() for key in args if key.strip().lower() in pyautogui.KEYBOARD_KEYS]
+        if keys:
+            for key in keys:
+                pyautogui.keyDown(key)
+            display_message("system", f"Keys held down: {', '.join(keys)}")
+        else:
+            display_message("error", "Invalid keys for multi_hold command")        
+    elif cmd == "multi_release":
+        keys = [key.strip().lower() for key in args if key.strip().lower() in pyautogui.KEYBOARD_KEYS]
+        if keys:
+            for key in keys:
+                pyautogui.keyUp(key)
+            display_message("system", f"Keys released: {', '.join(keys)}")
+        else:
+            display_message("error", "Invalid keys for multi_release command")         
+    elif cmd == "click" or cmd == "leftclick":
+        count = int(args[0]) if args and args[0].isdigit() else 1
+        for _ in range(count):
+            if enable_human_like_click:
+                human_like_click(pyautogui.position().x, pyautogui.position().y)
+            else:
+                pyautogui.click()
+        display_message("system", f"Executed {count} click(s)")        
+    elif cmd == "doubleclick":
+        count = int(args[0]) if args and args[0].isdigit() else 1
+        for _ in range(count):
+            pyautogui.doubleClick(interval=default_double_click_speed)
+        display_message("system", f"Executed {count} click(s)")        
+    elif cmd == "hold_click":
+        duration = float(args[0]) if args else 1.0
+        pyautogui.mouseDown()
+        pyautogui.sleep(duration)
+        pyautogui.mouseUp()
+        display_message("system", f"Held click for {duration} seconds")        
+    elif cmd == "screenshot" and len(args) == 2:
+        x, y = map(int, args)
+        screenshot = pyautogui.screenshot()
+        screenshot.save(f'screenshot_{x}_{y}.png')
+        display_message("system", f"Screenshot saved as screenshot_{x}_{y}.png")       
+    elif len(args) == 3:
+        cmd, x, y = args
+        x, y = map(int, [x, y])
+        if cmd.lower() in ["double_click", "doubleclick", "click"]:
+            pyautogui.doubleClick(x, y)
+        elif cmd.lower() in ["right_click", "rightclick"]:
+            pyautogui.rightClick(x, y)
+        display_message("system", f"Executed cursor command: {cmd} at ({x}, {y})")
+
+
+
+
+
+
+
+
+
+
          
 def write_content_to_file(content, file_name):
         with open(file_name, "w") as f:
