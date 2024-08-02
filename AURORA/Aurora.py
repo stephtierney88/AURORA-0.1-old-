@@ -1256,7 +1256,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
         print(f"Current token count in chat history else1: {token_count}")
         if token_counter > 0.85 * token_limit and token_counter < token_limit:
             print("Warning: Approaching token limit! Chat history will be saved.")  
-        elif token_counter >= token limit:
+        elif token_counter >= token_limit:
             print("Token limit reached! Chat history saved and non-pinned messages will be cleared.")
             clear_percentage_except_pinned_and_exempt("CLEAR%70")
             token_counter = 0   
