@@ -790,7 +790,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
                     args = []
                     cmd = command.lower()
 
-                if cmd.startswith('PYAG:'):
+                if cmd.startswith('pyag:'):
                     handle_pyautogui_command(cmd[5:], args)
 
                 elif cmd == "toggle_image_detail":
@@ -1256,7 +1256,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
         print(f"Current token count in chat history else1: {token_count}")
         if token_counter > 0.85 * token_limit and token_counter < token_limit:
             print("Warning: Approaching token limit! Chat history will be saved.")  
-        elif token_counter >= token_limit:
+        elif token_counter >= token limit:
             print("Token limit reached! Chat history saved and non-pinned messages will be cleared.")
             clear_percentage_except_pinned_and_exempt("CLEAR%70")
             token_counter = 0   
@@ -1270,13 +1270,14 @@ def handle_commands(command_input, is_user=True, exemption=None):
         tokens_in_message = len(list(tokenizer.encode(command_input)))
         token_counter = tokens_in_message
         print(f"Current token count in chat history e2: {token_count}")
-        if token_counter > 0.85 * token_limit and token_counter < token_limit:
+        if token_counter > 0.85 * token limit and token counter < token limit:
             print("Warning: Approaching token limit! Chat history will be saved.")  
-        elif token_counter >= token_limit:
+        elif token_counter >= token limit:
             print("Token limit reached! Chat history saved and non-pinned messages will be cleared.")
             save_chat_history_to_file(chat_history, 'chat_history')
             clear_percentage_except_pinned_and_exempt("CLEAR%70")
             token_counter = 0   
+
 
 
 def handle_pyautogui_command(cmd, args):
