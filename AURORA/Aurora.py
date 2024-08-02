@@ -769,7 +769,6 @@ def handle_commands(command_input, is_user=True, exemption=None):
     if command_input is None:
         return
 
-    # Update the last_command with the current command
     global last_command
     last_command = command_input
     command = None  # Define command before the try block
@@ -781,6 +780,26 @@ def handle_commands(command_input, is_user=True, exemption=None):
                 continue
 
             try:
+                if command.startswith('pyag:'):
+                    pyag_commands = command[5:].split(';')
+                    for pyag_command in pyag_commands:
+                        pyag_command = pyag_command.strip()
+                        if not pyag_command or pyag_command.startswith('#'):
+                            continue
+
+                        if '(' in pyag_command and ')' in pyag_command:
+                            cmd, args_part = pyag_command.split('(', 1)
+                            args_part = args_part.rstrip(')')
+                            args = args_part.split(',') if args_part else []
+                            cmd = cmd.strip().lower()
+                        else:
+                            args = []
+                            cmd = pyag_command.lower()
+
+                        handle_pyautogui_command(cmd, args)
+                    update_chat_history('system', command_input)
+                    continue
+
                 if '(' in command and ')' in command:
                     cmd, args_part = command.split('(', 1)
                     args_part = args_part.rstrip(')')
@@ -790,10 +809,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
                     args = []
                     cmd = command.lower()
 
-                if cmd.startswith('pyag:'):
-                    handle_pyautogui_command(cmd[5:], args)
-
-                elif cmd == "toggle_image_detail":
+                if cmd == "toggle_image_detail":
                     image_detail = "high" if image_detail == "low" else "low"
                     display_message("system", f"Global image_detail toggled to: {image_detail}")
                     update_chat_history('system', f"Global image_detail toggled to: {image_detail}")
@@ -1231,10 +1247,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
                         if content_type == 'text':
                             message = content.get('text', 'No text content')[:15] + '...'
                         elif content_type == 'image':
-                            print("image found")
-                            image_data = content.get('data', '')
-                            print("DATA")
-                            message = f"Image Data: {image_data[50:80]}..." if image_data else "Image Data: Missing or empty 'data' key"
+                            message = f"Image Data: {content.get('data', '')[:30]}..."
                         else:
                             message = f'[Other content type: {content_type}]'                        
                     else:
@@ -1272,13 +1285,11 @@ def handle_commands(command_input, is_user=True, exemption=None):
         print(f"Current token count in chat history e2: {token_count}")
         if token_counter > 0.85 * token_limit and token_counter < token_limit:
             print("Warning: Approaching token limit! Chat history will be saved.")  
-        elif token_counter >= token limit:
+        elif token_counter >= token_limit:
             print("Token limit reached! Chat history saved and non-pinned messages will be cleared.")
             save_chat_history_to_file(chat_history, 'chat_history')
             clear_percentage_except_pinned_and_exempt("CLEAR%70")
             token_counter = 0   
-
-
 
 def handle_pyautogui_command(cmd, args):
     if cmd in ["press", "hold"]:
@@ -1299,11 +1310,8 @@ def handle_pyautogui_command(cmd, args):
     elif cmd == "move":
         try:
             x, y = map(int, args)
-            if 0 <= x <= screen_width and 0 <= y <= screen_height:
-                pyautogui.moveTo(x, y)
-                display_message("system", f"Cursor moved to ({x}, {y})")
-            else:
-                raise ValueError("Coordinates out of screen bounds")
+            pyautogui.moveTo(x, y)
+            display_message("system", f"Cursor moved to ({x}, {y})")
         except ValueError:
             display_message("error", "Invalid coordinates for move command")       
     elif cmd == "drag":
@@ -1312,7 +1320,7 @@ def handle_pyautogui_command(cmd, args):
         display_message("system", f"Dragged to ({x}, {y}) in {duration} seconds")      
     elif cmd.startswith("scroll"):
         direction_units = cmd.split('_')
-        units = int(args[0]) if args else default_scroll_amount
+        units = int(args[0]) if args else 1
         if "down" in direction_units:
             pyautogui.scroll(-units)
         else:
@@ -1320,12 +1328,8 @@ def handle_pyautogui_command(cmd, args):
         display_message("system", f"Scrolled {'down' if 'down' in direction_units else 'up'} {units} units")       
     elif cmd == "release":
         key = args[0]
-        if key.lower() == "plus":
-            pyautogui.keyUp('+')
-            display_message("system", f"Plus key released.")
-        else:
-            pyautogui.keyUp(key)
-            display_message("system", f"Key released: {key}")      
+        pyautogui.keyUp(key)
+        display_message("system", f"Key released: {key}")      
     elif cmd == "hotkey":
         pyautogui.hotkey(*args)
         display_message("system", f"Hotkey executed: {'+'.join(args)}")        
@@ -1359,16 +1363,13 @@ def handle_pyautogui_command(cmd, args):
     elif cmd == "click" or cmd == "leftclick":
         count = int(args[0]) if args and args[0].isdigit() else 1
         for _ in range(count):
-            if enable_human_like_click:
-                human_like_click(pyautogui.position().x, pyautogui.position().y)
-            else:
-                pyautogui.click()
+            pyautogui.click()
         display_message("system", f"Executed {count} click(s)")        
     elif cmd == "doubleclick":
         count = int(args[0]) if args and args[0].isdigit() else 1
         for _ in range(count):
-            pyautogui.doubleClick(interval=default_double_click_speed)
-        display_message("system", f"Executed {count} click(s)")        
+            pyautogui.doubleClick()
+        display_message("system", f"Executed {count} double click(s)")        
     elif cmd == "hold_click":
         duration = float(args[0]) if args else 1.0
         pyautogui.mouseDown()
@@ -1388,8 +1389,6 @@ def handle_pyautogui_command(cmd, args):
         elif cmd.lower() in ["right_click", "rightclick"]:
             pyautogui.rightClick(x, y)
         display_message("system", f"Executed cursor command: {cmd} at ({x}, {y})")
-
-
 
 
 
