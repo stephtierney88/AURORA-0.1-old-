@@ -1395,8 +1395,6 @@ def handle_pyautogui_command(cmd, args):
 
 
 
-
-
          
 def write_content_to_file(content, file_name):
         with open(file_name, "w") as f:
