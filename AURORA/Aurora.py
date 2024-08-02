@@ -777,7 +777,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
         for command in commands:
             command = command.strip()
             if not command or command.startswith('#'):
-                continue
+                continue  # Skip empty commands and comments
 
             try:
                 if command.startswith('pyag:'):
@@ -785,7 +785,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
                     for pyag_command in pyag_commands:
                         pyag_command = pyag_command.strip()
                         if not pyag_command or pyag_command.startswith('#'):
-                            continue
+                            continue  # Skip empty pyag commands and comments
 
                         if '(' in pyag_command and ')' in pyag_command:
                             cmd, args_part = pyag_command.split('(', 1)
