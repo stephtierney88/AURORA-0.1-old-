@@ -216,13 +216,16 @@ def is_command(message):
     
 # List of known command prefixes
 is_known_command_prefixes = [
-    '/*', '*/', 'TOGGLE_POWER_WORD', 'VKB_CMD:', 'CURSORCMD:',
-    'toggle_always', 'INIT', 'PIN', 'RETRIEVE_HANDOFF', 'HANDOFF',
-    'RECALL', 'CLEAR_NOPIN%', 'CLEAR_NONPIN', 'CLEAR%', '-ch', '-CH',
-    'CLEAR', 'edit msgs', 'REMOVE_MSGS', 'DELETE_MSG:', 'SAVEPINNEDINIT',
-    'SAVEPINNEDHANDOFF', 'SAVEEXEMPTIONS', 'SAVE PINS', 'SAVE ALL PINS',
-    'HELP_VISIBILITY', 'HELP', 'hide', 'toggle', 'TOGGLE_SKIP_COMMANDS',
-    'DISPLAYHISTORY', 'DHISTORY', 'SAVECH', 'VKPAG:'  # ... add any other command identifiers you need
+       '/*', '*/', 'TOGGLE_POWER_WORD', 'toggle_power_word', 'VKB_CMD:', 'vkb_cmd:', 'CURSORCMD:', 'cursorcmd:',
+    'toggle_always', 'TOGGLE_ALWAYS', 'INIT', 'init', 'PIN', 'pin', 'RETRIEVE_HANDOFF', 'retrieve_handoff', 'HANDOFF', 'handoff',
+    'RECALL', 'recall', 'CLEAR_NOPIN%', 'clear_nopin%', 'CLEAR_NONPIN', 'clear_nonpin', 'CLEAR%', 'clear%',
+    '-ch', '-CH', 'CLEAR', 'clear', 'edit msgs', 'EDIT MSGS', 'REMOVE_MSGS', 'remove_msgs', 'DELETE_MSG:', 'delete_msg:',
+    'SAVEPINNEDINIT', 'savepinnedinit', 'SAVEPINNEDHANDOFF', 'savepinnedhandoff', 'SAVEEXEMPTIONS', 'saveexemptions', 'SAVE PINS', 'save pins',
+    'SAVE ALL PINS', 'save all pins', 'HELP_VISIBILITY', 'help_visibility', 'HELP', 'help', 'hide', 'HIDE', 'toggle', 'TOGGLE',
+    'TOGGLE_SKIP_COMMANDS', 'toggle_skip_commands', 'DISPLAYHISTORY', 'displayhistory', 'DHISTORY', 'dhistory', 'SAVECH', 'savech', 'VKPAG:', 'vkpag:', 'pyag:', 'PYAG:',
+    'shutdown instance', 'SHUTDOWN INSTANCE', 'terminate instance', 'TERMINATE INSTANCE', 'CLEAR ALL MESSAGES', 'clear all messages',
+    'CLEAR INIT', 'clear init', 'CLEAR PIN', 'clear pin', 'CLEAR HANDOFF', 'clear handoff', 'TOGGLE AUTO PROMPT', 'toggle auto prompt'
+# ... add any other command identifiers you need
     # Note: Make sure all prefixes are unique and not a subset of another prefix,
     # otherwise, it may cause issues in recognizing commands accurately.
 ]
@@ -332,7 +335,7 @@ def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp
             messages.append({
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": "Based on the provided screenshot(s), please describe each or any screenshot then respond with an appropriate description "},  # Use your specific prompt if needed
+                    {"type": "text", "text": "Based on the provided screenshot(s), please use pyag:  then use a comment # to then describe each or any screenshot then respond with an appropriate description "},  # Use your specific prompt if needed
 
                     #{"type": "text", "text": "Based on the provided screenshot(s), please describe each or any screenshot then respond with the appropriate command to complete objective of playing Pokemon. If not in Pokemon try clicking on VBA emulator, and then using next response to adust notes in pinned messages of actions taken via edit msgs. If an action is required, use 'VKPAG: [command(args); command(args)]' for interface interactions, or 'edit msgs [timestamp]' to update Pinned messages. If clarification or assistance is needed, feel free to engage in a conversation without a command prefix. Otherwise please do not respond about the image unless absolutely necessary. Responses should be VKPAG or edit msgs"},  # Use your specific prompt if needed
                     {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}",
@@ -750,8 +753,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
     global latest_image_detail
     global High_Detail
     global MAX_IMAGES_IN_HISTORY
-    
-    # Check if commands should be disabled
+
     if command_input.startswith('/*'):
         disable_commands = True
         display_message("system", "Command processing is now disabled.")
@@ -760,8 +762,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
         disable_commands = False
         display_message("system", "Command processing is now enabled.")
         return
-    
-    # If commands are disabled, ignore the rest
+
     if disable_commands:
         display_message("system", "Command processing is currently disabled.")
         return
@@ -771,13 +772,15 @@ def handle_commands(command_input, is_user=True, exemption=None):
 
     global last_command
     last_command = command_input
-    command = None  # Define command before the try block
+    command = None
+
     try:
-        commands = command_input.split(';')
+        commands, *comment = command_input.split('#')
+        commands = commands.split(';')
         for command in commands:
             command = command.strip()
-            if not command or command.startswith('#'):
-                continue  # Skip empty commands and comments
+            if not command:
+                continue
 
             try:
                 if command.startswith('pyag:'):
@@ -785,7 +788,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
                     for pyag_command in pyag_commands:
                         pyag_command = pyag_command.strip()
                         if not pyag_command or pyag_command.startswith('#'):
-                            continue  # Skip empty pyag commands and comments
+                            continue
 
                         if '(' in pyag_command and ')' in pyag_command:
                             cmd, args_part = pyag_command.split('(', 1)
@@ -804,7 +807,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
                     cmd, args_part = command.split('(', 1)
                     args_part = args_part.rstrip(')')
                     args = args_part.split(',') if args_part else []
-                    cmd = cmd.strip().lower()
+                    cmd = command.lower()
                 else:
                     args = []
                     cmd = command.lower()
@@ -862,12 +865,15 @@ def handle_commands(command_input, is_user=True, exemption=None):
                         display_message("error", "No value provided for latest_image_detail.")
 
                 else:
-                    raise ValueError("Invalid command format")
+                    # Instead of raising an error here, just log the invalid command and continue
+                    display_message("error", f"Invalid command format: {command}")
+                    continue
 
                 update_chat_history('system', command_input)
 
             except Exception as e:
                 display_message("system", f"Output: {command}. Error: {str(e)}.")
+                continue
 
         if command_input.lower() in ("edit msgs"):
             edit_commands = command_input[9:].split(';')
@@ -948,7 +954,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
                 update_chat_history('system', command_input)
             except Exception as e:
                 print(f"Error processing the REMOVE_MSGS command: {e}")
-                
+
         if command_input.startswith('RETRIEVE_HANDOFF'):
             handoff_filename = command_input.split('_')[2].strip()
             if not handoff_filename:
@@ -965,7 +971,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
                 return
             chat_history.append({'role': 'assistant', 'content': f'Pinned Handoff context: {handoff_summary}'})
             print(f"Pinned Handoff context from file: {handoff_summary}")
-        
+
         if command_input.startswith("HANDOFF"):
             handoff_summary = command_input[7:].strip()
             hbuffer.append(handoff_summary)
@@ -1020,21 +1026,21 @@ def handle_commands(command_input, is_user=True, exemption=None):
 
         if command_input.lower() in ("CLEAR ALL MESSAGES"):
             chat_history = [
-                entry for entry in chat_history 
-                if 'text' in entry['content'] and 
-                (entry['content']['text'].startswith('Pinned Init summary') or 
-                entry['content']['text'].startswith('Pinned Handoff context'))
+                entry for entry in chat_history
+                if 'text' in entry['content'] and
+                   (entry['content']['text'].startswith('Pinned Init summary') or
+                    entry['content']['text'].startswith('Pinned Handoff context'))
             ]
             print("Chat history cleared, only pinned summaries remain.")
             update_chat_history('system', command_input)
 
         if command_input.lower() in ("CLEAR INIT"):
             chat_history = [
-                entry for entry in chat_history 
-                if 'text' in entry['content'] and 
-                not entry['content']['text'].startswith('Pinned Init summary')
+                entry for entry in chat_history
+                if 'text' in entry['content'] and
+                   not entry['content']['text'].startswith('Pinned Init summary')
             ]
-            print("Chat history cleared, Init summaries removed.") 
+            print("Chat history cleared, Init summaries removed.")
             update_chat_history('system', command_input)
 
         if command_input.lower() in ("CLEAR PIN"):
@@ -1044,7 +1050,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
 
         if command_input.lower() in ("CLEAR HANDOFF"):
             chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Handoff context')]
-            print("Chat history cleared, Handoff summaries removed.")     
+            print("Chat history cleared, Handoff summaries removed.")
 
         if command_input.startswith("DELETE_MSG:"):
             timestamp = command_input[11:].strip()
@@ -1053,7 +1059,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
             update_chat_history('system', command_input)
 
         if command_input.startswith('SAVEPINNEDINIT'):
-            pinned_init_summaries = [entry['content']['text'][19:] for entry in chat_history if isinstance(entry['content'], dict) and entry['content']['text'].startswith('Pinned Init summary')]            
+            pinned_init_summaries = [entry['content']['text'][19:] for entry in chat_history if isinstance(entry['content'], dict) and entry['content']['text'].startswith('Pinned Init summary')]
             write_content_to_file("\n".join(pinned_init_summaries), "pinned_init_summaries.txt")
             update_chat_history('system', command_input)
 
@@ -1192,7 +1198,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
         if command_input.lower() in ('toggle unimportant messages'):
             enable_unimportant_messages = not enable_unimportant_messages
             return
-        
+
         if command_input.lower() in ('toggle important messages'):
             enable_important_messages = not enable_important_messages
             return
@@ -1204,7 +1210,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
         if command_input.lower() in ('toggle add imsgs to history'):
             ADD_IMSGS_TO_HISTORY = not ADD_IMSGS_TO_HISTORY
             return
-        
+
         if command_input.lower() in ('toggle unmsgs decay check'):
             CHECK_UMSGS_DECAY = not CHECK_UMSGS_DECAY
             print(f"Unimportant messages decay check toggled to {'ON' if CHECK_UMSGS_DECAY else 'OFF'}.")
@@ -1214,11 +1220,11 @@ def handle_commands(command_input, is_user=True, exemption=None):
             print(f"Important messages decay check toggled to {'ON' if CHECK_IMSGS_DECAY else 'OFF'}.")
 
         if not enable_unimportant_messages and is_unimportant_message(command_input, exemption=exemption):
-            return    
-        
+            return
+
         if not enable_important_messages and is_important_message(command_input, exemption=exemption):
-            return    
-        
+            return
+
         if command_input.startswith('TOGGLE_SKIP_COMMANDS'):
             SKIP_ADDING_COMMANDS_TO_CHAT_HISTORY = not SKIP_ADDING_COMMANDS_TO_CHAT_HISTORY
             display_message("system", f"Skipping adding commands to chat history: {SKIP_ADDING_COMMANDS_TO_CHAT_HISTORY}")
@@ -1228,7 +1234,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
             save_chat_history_to_file(chat_history, 'chat_history')
             display_message("system", "Chat history saved to chat_history.txt.")
             return
-        
+
         if command_input.startswith("DHISTORY"):
             if chat_history:
                 for entry in chat_history:
@@ -1249,7 +1255,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
                         elif content_type == 'image':
                             message = f"Image Data: {content.get('data', '')[:30]}..."
                         else:
-                            message = f'[Other content type: {content_type}]'                        
+                            message = f'[Other content type: {content_type}]'
                     else:
                         message = str(content)[:80] + '...' if content else 'Empty content'
                     print(f"{timestamp} - {role}: {message}")
@@ -1258,38 +1264,38 @@ def handle_commands(command_input, is_user=True, exemption=None):
                 print("No messages in the chat history.")
     except Exception as e:
         display_message("system", f"Failed to execute command: {command}. Error: {str(e)}.")
-        display_message("system", " e1")
         role = "assistant" if not is_user else "user"
         if not (is_user and hide_user_commands) or (not is_user and hide_ai_commands):
             display_message(role, command_input)
-        
+
         token_count = count_tokens_in_history(chat_history)
         tokens_in_message = len(list(tokenizer.encode(command_input)))
         token_counter = tokens_in_message
         print(f"Current token count in chat history else1: {token_count}")
         if token_counter > 0.85 * token_limit and token_counter < token_limit:
-            print("Warning: Approaching token limit! Chat history will be saved.")  
+            print("Warning: Approaching token limit! Chat history will be saved.")
         elif token_counter >= token_limit:
             print("Token limit reached! Chat history saved and non-pinned messages will be cleared.")
             clear_percentage_except_pinned_and_exempt("CLEAR%70")
-            token_counter = 0   
+            token_counter = 0
     else:
-        display_message("system", " e2")
         role = "assistant" if not is_user else "user"
         if not (is_user and hide_user_commands) or (not is_user and hide_ai_commands):
             display_message(role, command_input)
-        
+
         token_count = count_tokens_in_history(chat_history)
         tokens_in_message = len(list(tokenizer.encode(command_input)))
         token_counter = tokens_in_message
         print(f"Current token count in chat history e2: {token_count}")
         if token_counter > 0.85 * token_limit and token_counter < token_limit:
-            print("Warning: Approaching token limit! Chat history will be saved.")  
+            print("Warning: Approaching token limit! Chat history will be saved.")
         elif token_counter >= token_limit:
             print("Token limit reached! Chat history saved and non-pinned messages will be cleared.")
             save_chat_history_to_file(chat_history, 'chat_history')
             clear_percentage_except_pinned_and_exempt("CLEAR%70")
-            token_counter = 0   
+            token_counter = 0
+
+  
 
 def handle_pyautogui_command(cmd, args):
     if cmd in ["press", "hold"]:
