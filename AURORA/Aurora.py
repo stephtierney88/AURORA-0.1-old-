@@ -865,7 +865,6 @@ def handle_commands(command_input, is_user=True, exemption=None):
                         display_message("error", "No value provided for latest_image_detail.")
 
                 else:
-                    # Instead of raising an error here, just log the invalid command and continue
                     display_message("error", f"Invalid command format: {command}")
                     continue
 
@@ -1290,7 +1289,6 @@ def handle_commands(command_input, is_user=True, exemption=None):
         if token_counter > 0.85 * token_limit and token_counter < token_limit:
             print("Warning: Approaching token limit! Chat history will be saved.")
         elif token_counter >= token_limit:
-            print("Token limit reached! Chat history saved and non-pinned messages will be cleared.")
             save_chat_history_to_file(chat_history, 'chat_history')
             clear_percentage_except_pinned_and_exempt("CLEAR%70")
             token_counter = 0
