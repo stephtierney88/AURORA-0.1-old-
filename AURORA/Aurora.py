@@ -800,7 +800,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
                             cmd = pyag_command.lower()
 
                         handle_pyautogui_command(cmd, args)
-                    update_chat_history('system', command_input)
+                    #update_chat_history('system', command_input)
                     continue
 
                 if '(' in command and ')' in command:
@@ -815,19 +815,19 @@ def handle_commands(command_input, is_user=True, exemption=None):
                 if cmd == "toggle_image_detail":
                     image_detail = "high" if image_detail == "low" else "low"
                     display_message("system", f"Global image_detail toggled to: {image_detail}")
-                    update_chat_history('system', f"Global image_detail toggled to: {image_detail}")
+                    #update_chat_history('system', f"Global image_detail toggled to: {image_detail}")
 
                 elif cmd == "toggle_latest_image_detail":
                     latest_image_detail = "high" if latest_image_detail == "low" else "low"
                     display_message("system", f"Global latest_image_detail toggled to: {latest_image_detail}")
-                    update_chat_history('system', f"Global latest_image_detail toggled to: {latest_image_detail}")
+                    #update_chat_history('system', f"Global latest_image_detail toggled to: {latest_image_detail}")
 
                 elif cmd == "set_high_detail":
                     try:
                         value = int(args[0])
                         High_Detail = value
                         display_message("system", f"Global High_Detail set to: {High_Detail}")
-                        update_chat_history('system', f"Global High_Detail set to: {High_Detail}")
+                        #update_chat_history('system', f"Global High_Detail set to: {High_Detail}")
                     except ValueError:
                         display_message("error", "Invalid value for High_Detail. Must be an integer.")
 
@@ -836,7 +836,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
                         value = int(args[0])
                         MAX_IMAGES_IN_HISTORY = value
                         display_message("system", f"Global MAX_IMAGES_IN_HISTORY set to: {MAX_IMAGES_IN_HISTORY}")
-                        update_chat_history('system', f"Global MAX_IMAGES_IN_HISTORY set to: {MAX_IMAGES_IN_HISTORY}")
+                        #update_chat_history('system', f"Global MAX_IMAGES_IN_HISTORY set to: {MAX_IMAGES_IN_HISTORY}")
                     except ValueError:
                         display_message("error", "Invalid value for MAX_IMAGES_IN_HISTORY. Must be an integer.")
 
@@ -846,7 +846,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
                         if detail in ["low", "high"]:
                             image_detail = detail
                             display_message("system", f"Global image_detail set to: {image_detail}")
-                            update_chat_history('system', f"Global image_detail set to: {image_detail}")
+                            #update_chat_history('system', f"Global image_detail set to: {image_detail}")
                         else:
                             display_message("error", "Invalid value for image_detail. Must be 'low' or 'high'.")
                     except IndexError:
@@ -858,7 +858,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
                         if detail in ["low", "high"]:
                             latest_image_detail = detail
                             display_message("system", f"Global latest_image_detail set to: {latest_image_detail}")
-                            update_chat_history('system', f"Global latest_image_detail set to: {latest_image_detail}")
+                            #update_chat_history('system', f"Global latest_image_detail set to: {latest_image_detail}")
                         else:
                             display_message("error", "Invalid value for latest_image_detail. Must be 'low' or 'high'.")
                     except IndexError:
@@ -868,7 +868,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
                     display_message("error", f"Invalid command format: {command}")
                     continue
 
-                update_chat_history('system', command_input)
+                #update_chat_history('system', command_input)
 
             except Exception as e:
                 display_message("system", f"Output: {command}. Error: {str(e)}.")
@@ -900,7 +900,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
 
                     if found:
                         print(f"Message with timestamp {timestamp} edited successfully!")
-                        update_chat_history('system', command_input)
+                        #update_chat_history('system', command_input)
                     else:
                         print(f"No message found with timestamp {timestamp}.")
                 except ValueError:
@@ -914,7 +914,7 @@ def handle_commands(command_input, is_user=True, exemption=None):
             else:
                 print("Invalid number of parameters. Usage: toggle_always on|off true|false")
 
-            update_chat_history('system', command_input)
+            #update_chat_history('system', command_input)
 
         if command_input.startswith("TOGGLE_POWER_WORD"):
             REQUIRE_POWER_WORD = not REQUIRE_POWER_WORD
@@ -1264,8 +1264,8 @@ def handle_commands(command_input, is_user=True, exemption=None):
     except Exception as e:
         display_message("system", f"Failed to execute command: {command}. Error: {str(e)}.")
         role = "assistant" if not is_user else "user"
-        if not (is_user and hide_user_commands) or (not is_user and hide_ai_commands):
-            display_message(role, command_input)
+        #if not (is_user and hide_user_commands) or (not is_user and hide_ai_commands):
+            #display_message(role, command_input)
 
         token_count = count_tokens_in_history(chat_history)
         tokens_in_message = len(list(tokenizer.encode(command_input)))
@@ -1279,8 +1279,8 @@ def handle_commands(command_input, is_user=True, exemption=None):
             token_counter = 0
     else:
         role = "assistant" if not is_user else "user"
-        if not (is_user and hide_user_commands) or (not is_user and hide_ai_commands):
-            display_message(role, command_input)
+        #if not (is_user and hide_user_commands) or (not is_user and hide_ai_commands):
+        #    display_message(role, command_input)
 
         token_count = count_tokens_in_history(chat_history)
         tokens_in_message = len(list(tokenizer.encode(command_input)))
