@@ -131,3 +131,9 @@ update_chat_history()  #chat history is then updated & image history
 
 
 so essentially the idea is Screenshot->SCPT->handle_commands->UCH
+
+
+
+
+
+**at start of runtime, program looks for init file Aurora_init.txt  this is effectively a pinned starting prompt to relay important information each inference; change this as you will.  ie information and examples of a task at hand and also information about it's own code and commands available. :3
