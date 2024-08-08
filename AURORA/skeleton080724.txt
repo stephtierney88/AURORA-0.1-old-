@@ -1,0 +1,483 @@
+# Import statements
+import datetime
+import os
+import random
+import sys
+import threading
+import time
+import numpy as np
+import openai
+import pyautogui
+import pydub
+from pydub import AudioSegment
+from pydub.playback import play
+import requests
+import schedule
+import sounddevice as sd
+import tiktoken
+from PIL import Image, ImageGrab, ImageDraw, ImageFont
+from threading import Lock
+from scipy.io.wavfile import write
+import tempfile
+import json
+import io
+import math
+
+# Global variables and settings
+API_KEY = "sk-proj-key"
+chat_history = []
+CONTEXT_LENGTH = 25192
+tokenizer = tiktoken.get_encoding("cl100k_base")
+token_limit = 8100
+token_counter = 0
+character_name = "Aurora"
+init_handoff_in_progress = False
+enable_auto_prompt = False
+auto_prompt_message = "Auto Prompt."
+screen_width, screen_height = pyautogui.size()
+time_interval = 5.1
+fs = 48000
+channels = 2
+sd.default.device = 1
+lock = Lock()
+mouse_position_lock = Lock()
+last_key_lock = Lock()
+image_history_lock = Lock()
+audio_buffer = []
+
+# Function to run the audio stream
+def run_audio_stream():
+    with sd.InputStream(callback=audio_callback):
+        sd.sleep(100000000)
+
+# Audio callback function
+def audio_callback(indata, frames, time_info, status):
+    pass
+
+# Function to check if a message is a command
+def is_command(message):
+    return is_known_command(message)
+
+# Function to check if a message is a known command
+def is_known_command(message):
+    pass
+
+# Function to encode image to base64
+def encode_image_to_base64(image_path):
+    pass
+
+# Function to upload image and get file ID
+def upload_image_and_get_file_id(image_path):
+    pass
+
+# Function to send prompt to ChatGPT
+def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp=None, exemption=None, sticky=False):
+    Initialize variables and prepare headers
+
+    Set up headers for the API request.
+
+Prepare the messages list
+
+    Include system message and chat history.
+
+Handle image prompt
+
+    If image_path is provided:
+        Encode image to base64.
+        Append image content to the messages list.
+
+Handle text prompt
+
+    If no image_path:
+        Append text content to the messages list.
+
+Construct the payload
+
+    Create a payload with model, messages, and other parameters.
+
+Make POST request
+
+    Send the request to the API.
+
+Handle API response
+
+    If successful:
+        Process AI response and update chat history.
+    If error:
+        Handle the error case.
+
+# Function to update chat history
+def update_chat_history(role, content, token_count=None, image_path=None, exemption='None', image_timestamp=None, sticky=False):
+    Check enablement flags
+
+    Return early if certain messages should not be added to history based on global flags.
+
+Prepare timestamp and content
+
+    Prepend timestamp to content.
+
+Prepare history entry
+
+    Include role, content, and other relevant information.
+
+Handle image content
+
+    If image_path is provided:
+        Encode image to base64 and add to history entry.
+        Call manage_image_history.
+
+Handle text content
+
+    If no image_path:
+        Add text content to history entry.
+
+Append history entry to chat history
+
+    Add the entry to the global chat_history list.
+
+Check and remove expired messages
+
+    Remove messages based on decay time and importance flags.
+
+# Function to manage image history
+def manage_image_history(new_image_base64, image_timestamp=None, sticky=False):
+    Check for duplicate images
+
+    Skip adding the image if it already exists in the chat history.
+
+Add new image to chat history
+
+    Append new image entry to the chat_history.
+
+Adjust detail levels based on High_Detail
+
+    Set detail level for recent or old images as specified.
+
+Ensure sticky images remain high detail
+
+    Adjust detail level for sticky images.
+
+Remove oldest images if limit exceeded
+
+    Ensure the number of images in history does not exceed MAX_IMAGES_IN_HISTORY.
+
+# Function to handle user input
+def user_input_handler():
+    Loop for continuous input handling
+
+    Run indefinitely while the script is active.
+
+Check for auto prompt
+
+    If auto prompt is enabled and interval exceeded:
+        Trigger auto prompt.
+
+Get user input
+
+    Use get_user_input to fetch user input.
+
+Handle input disable commands
+
+    Enable or disable command processing based on input.
+
+Process input
+
+    If input is a command:
+        Call handle_commands.
+    If not a command:
+        Call send_prompt_to_chatgpt.
+
+# Function to get user input
+def get_user_input(Always_=None, hide_input=None):
+    Determine if input should be hidden
+
+    Set hide_input based on Always_ flag or user prompt.
+
+Fetch user input
+
+    If hide_input is True:
+        Use getpass to hide input.
+    If hide_input is False:
+        Use standard input to show input.
+
+# Function for human-like click
+def human_like_click(x_pixel, y_pixel):
+    pass
+
+# Function to handle commands
+def handle_commands(command_input, is_user=True, exemption=None):
+    Check for special commands
+
+    If command is to toggle features or modes:
+        Adjust corresponding global variables.
+
+Execute specific command functions
+
+    If command relates to PyAutoGUI:
+        Call handle_pyautogui_command.
+
+Handle other commands
+
+    If command involves history management, visibility, or shutdown:
+        Execute corresponding logic or function calls.
+
+# Function to handle PyAutoGUI commands
+def handle_pyautogui_command(cmd, args):
+    Parse command and arguments esp relating to PyAutoGUI
+
+    Extract specific PyAutoGUI commands and parameters.
+
+Execute PyAutoGUI commands
+
+    If move command:
+        Move the mouse cursor.
+    If click command:
+        Perform a click action.
+    If other actions like typing, scrolling:
+        Perform the corresponding actions.
+
+# Function to write content to file
+def write_content_to_file(content, file_name):
+    pass
+
+# Function to save chat history to file
+def save_chat_history_to_file(chat_history, file_name):
+    pass
+
+# Function to display messages
+def display_message(role, content, token_count=None, include_command=False):
+    Check visibility settings
+
+    Determine if the message should be displayed based on global flags.
+
+Format and print message
+
+    Format the message with a timestamp and content.
+    Print the message to the console or output.
+
+# Class to define a chat message
+class ChatMessage:
+    def __init__(self, role, content, token_count, timestamp, file_id=None, image_path=None, last_command=None, mouse_position=None, last_key=None):
+        pass
+
+    def format_for_chatgpt(self):
+        pass
+
+Class Initialization
+
+    Attributes:
+        role, content, timestamp, token_count, exemption, last_key, mouse_position, last_command.
+
+Methods for setting and getting attributes
+
+    Set methods:
+        Define methods to set role, content, timestamp, etc.
+    Get methods:
+        Define methods to retrieve role, content, timestamp, etc.
+
+# Function to check if a message is important
+def is_important_message(content, exemption):
+    pass
+
+# Function to check if a message is unimportant
+def is_unimportant_message(content, exemption=None):
+    pass
+
+# Function to count tokens in chat history
+def count_tokens_in_history(chat_history):
+    pass
+
+# Function to initiate and handoff
+def initiate_and_handoff():
+    pass
+
+# Function to handoff to ChatGPT
+def handoff_to_chatgpt():
+    pass
+
+# Function to clear chat history except pinned
+def clear_chat_history_except_pinned(percentage_to_clear):
+    pass
+
+# Function to clear chat history with percentage
+def clear_chat_history(percentage):
+    pass
+
+# Function to save daily summary
+def save_daily_summary():
+    pass
+
+# Function to check and save daily summary
+def check_daily_summary_time():
+    pass
+
+# Function for daily summary
+def daily_summary():
+    pass
+
+# Function to check for previous handoff
+def check_previous_handoff():
+    pass
+
+# Function to shutdown ChatGPT instance and exit
+def shutdown_chatgpt_instance_and_exit():
+    pass
+
+# Function to terminate instance
+def terminate_instance():
+    pass
+
+# Function to restart ChatGPT instance
+def restart_chatgpt_instance():
+    pass
+
+# Function to check for previous handoff
+def check_for_previous_handoff():
+    pass
+
+# Function to recall previous summary
+def recall_previous_summary(character_name):
+    pass
+
+# Function to listen to keyboard
+def listen_to_keyboard():
+    Setup keyboard listener
+
+    Use keyboard module to capture key events.
+
+Handle key press events
+
+    If specific keys are pressed:
+        Update global variables or trigger specific functions.
+
+# Function to add grid to screenshot
+def add_grid_to_screenshot2(image, grid_interval):
+    Open image and prepare for drawing
+
+    Load the image using PIL.
+
+Calculate grid parameters
+
+    Determine the number of grid points and their sizes.
+
+Draw grid on the image
+
+    Draw points with labeled coordinates to form a grid or array.
+
+Return the modified image
+
+    Return the image with the grid overlay.
+
+# Function to draw cursor on screenshot
+def draw_cursor(draw, cursor_position, cursor_size):
+    Open image and prepare for drawing
+
+    Load the image using PIL.
+
+Draw cursor on the image
+
+    Draw a representation of the cursor at the specified position.
+
+Return the modified image
+
+    Return the image with the cursor overlay.
+
+# Function to draw text with background
+def draw_text_with_background(draw, position, text, font, text_color="white", background_color=(0, 0, 0), background_opacity=128, shift_x=5, shift_y=20):
+    Open image and prepare for drawing
+
+    Load the image using PIL.
+
+Calculate text size and position
+
+    Determine the size and position for the text background.
+
+Draw text background
+
+    Draw a rectangle behind the text.
+
+Draw the text
+
+    Draw the text in upper left corner of some important info like current mouse position, last command used, timestamp, ect on top of the background.
+
+Return the modified image
+
+    Return the image with the text overlay.
+
+# Function to take screenshot
+def take_screenshot():
+    Capture screenshot
+
+    Use PIL or pyautogui to capture the screen.
+
+Save or process the screenshot
+
+    Save the screenshot to a file or process it as needed by calling   draw_cursor, add_to_grid_to_screenshot2, draw_text_with_background.
+
+Return the screenshot
+
+    Return the screenshot image.
+
+# Function to run scheduled tasks
+def run_scheduled_tasks():
+    pass
+
+# Function to monitor and restart threads if necessary
+def thread_watchdog(threads):
+    pass
+
+# Global variable to control the main loop
+running = True
+
+# Screenshot options
+screenshot_options = {
+    "current_window": True,
+    "entire_screen": True,
+}
+
+# Screen buffer and logging folder
+screenbuffer = []
+hbuffer = []
+logging_folder = "screenshots"
+if not os.path.exists(logging_folder):
+    os.makedirs(logging_folder)
+
+# Read the init prompt from a file
+init_file = f"{character_name}_init.txt"
+with open(init_file, "r") as f:
+    init_prompt = f.read().strip()
+
+# Read the handoff summary from a file
+handoff_file = f"{character_name}_handoff.txt"
+if os.path.exists(handoff_file):
+    with open(handoff_file, "r") as f:
+        handoff_text = f.read().strip()
+    response_text = send_prompt_to_chatgpt(handoff_text)
+    send_prompt_to_chatgpt(response_text)
+
+# Schedule the screenshot taking function
+schedule.every(time_interval).seconds.do(take_screenshot)
+
+# Schedule daily summary
+schedule.every().day.at("19:00").do(save_daily_summary)
+
+# Dictionary to keep track of threads
+threads = {
+    "user_input_thread": threading.Thread(target=user_input_handler),
+    "listen_to_keyboard": threading.Thread(target=listen_to_keyboard),
+    "scheduled_tasks_thread": threading.Thread(target=run_scheduled_tasks)
+}
+
+# Start the threads and store them in the dictionary
+for thread_name, thread_obj in threads.items():
+    thread_obj.daemon = True
+    thread_obj.start()
+
+# Create a thread for the watchdog function and start it
+watchdog_thread = threading.Thread(target=thread_watchdog, args=(threads,))
+watchdog_thread.daemon = True
+watchdog_thread.start()
+
+# Main loop to keep the program running
+while running:
+    pass

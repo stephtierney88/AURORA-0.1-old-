@@ -1,0 +1,133 @@
+USER INPUT Thread Loop:
+
+# Function to handle user input
+def user_input_handler():
+
+    handle_commands()
+	if is_command(ai_response):
+    		handle_commands(ai_response, is_user=False)
+
+    send_prompt_to_chatgpt()   #SCGPT
+    display_message()
+    update_chat_history()      #UCH   
+
+
+ #yeah i know i called it ai_response, i need to change that to user_input lol; Also if User input is a command, SCGPT & UCH are skipped
+
+
+-->
+
+send_prompt_to_chatgpt()
+
+
+
+# message array created, messages populated from chat history
+
+messages = [
+            {"role": "system", "content": "You are a helpful assistant."}
+        ]
+
+for entry in chat_history:
+
+            elif entry['content']['type'] == 'text':
+                # If the entry is text, add it as plain text content
+                messages.append({
+                    "role": entry['role'],
+                    "content": entry['content']['text']
+                })
+
+-->
+display_message() #displays recent text (except human user commands)
+
+-->
+
+update_chat_history() #chat history is then updated & image history
+
+
+
+so essentially the idea is user_input_handler->SCPT->handle_commands/UCH
+
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Scheduled Tasks Thread Loop: take_screenshot
+
+
+def take_screenshot():
+
+screenshot = ImageGrab.grab()
+cursor_position = pyautogui.position()
+draw_cursor(draw, cursor_position, cursor_size)
+add_grid_to_screenshot2()
+draw_text_with_background()
+screenshot.save(screenshot_file_path)
+send_prompt_to_chatgpt()
+
+-->
+
+send_prompt_to_chatgpt()
+
+
+# message array created, messages populated from chat history
+
+messages = [
+            {"role": "system", "content": "You are a helpful assistant."}
+        ]
+
+for entry in chat_history:
+
+                messages.append({
+                    "role": entry['role'],
+                    "content": [{"type": "image_url", "image_url":  {"url": f"data:image/png;base64,{entry['content']['data']}","detail": image_detail}
+                }]
+                })
+
+            elif entry['content']['type'] == 'text':
+                # If the entry is text, add it as plain text content
+                messages.append({
+                    "role": entry['role'],
+                    "content": entry['content']['text']
+
+#recent image present but not in chat history yet, needs to also be sent in messages
+        if image_path:
+            # Set the detail level for the latest image
+            #image_detail = latest_image_detail
+            # If an image path is provided, you process it here as you have done before.
+            print(image_path)
+            base64_image = encode_image_to_base64(image_path)
+            print("success")
+            #print(image_detail + " of image path")
+            messages.append({
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Based on the provided screenshot(s), please use pyag:  then use a comment # to then describe each or any screenshot then respond with an appropriate description "},  # Use your specific prompt if needed
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}",
+                 "detail": image_detail}
+            }]
+            })
+
+if is_command(ai_response):
+    handle_commands(ai_response, is_user=False) #ai can use commands too
+
+display_message() 
+update_chat_history()   
+
+-->
+
+display_message() #displays recent text (except human user commands)
+
+
+-->
+
+
+
+update_chat_history()  #chat history is then updated & image history
+
+##for brevity I omitted many of the lesser function defs and commands. Essentially the ai uses pyautogui commands to control the device
+
+
+
+
+
+
+so essentially the idea is Screenshot->SCPT->handle_commands->UCH
