@@ -60,6 +60,7 @@ global CHECK_UMSGS_DECAY
 global CHECK_IMSGS_DECAY
 global userName
 global aiName
+
 CHECK_UMSGS_DECAY = True  # Initially set to True to enable decay checks for unimportant messages
 CHECK_IMSGS_DECAY = True  # Initially set to True to enable decay checks for important messages
 Always_ = False
@@ -68,16 +69,22 @@ hide_input = None
 global last_command
 last_command = None
 screen_width, screen_height = pyautogui.size()
-MAX_IMAGES_IN_HISTORY = 5  # Global variable for the maximum number of images to retain
+MAX_IMAGES_IN_HISTORY = 8  # Global variable for the maximum number of images to retain
 #image_detail =  "high"   # "low" or depending on your requirement
 image_detail =  "low"   # "high" or depending on your requirement
 latest_image_detail = "high"  # "high" for the latest image, "low" for older images
 # Define the High_Detail global variable
 global High_Detail
-High_Detail = 0  # Initialize to 0 or set as needed  pos for recent high detail, neg for last
+High_Detail = 3  # Initialize to 0 or set as needed  pos for recent high detail, neg for last
+global Recent_images_High
+Recent_images_High= 3
+
 image_timestamp = None
 last_key = None  # Initialize the global variable
 mouse_position = {"x": 0, "y": 0}  # Initialize as a dictionary
+
+global queued_user_input
+queued_user_input = None
 
 global MAX_IMPORTANT_MESSAGES
 global MAX_UNIMPORTANT_MESSAGES
@@ -85,7 +92,7 @@ MAX_IMPORTANT_MESSAGES = 50  # Example value
 MAX_UNIMPORTANT_MESSAGES = 100  # Example value
 IMGS_DECAY = 9999 # Setting the default decay time to 3 minutes for important messages
 UMSGS_DECAY = 1.25 # Setting the default decay time to 3 minutes for unimportant messages
-time_interval = 5.1 # Time interval between screenshots (in seconds)
+time_interval = 300.5 # Time interval between screenshots (in seconds)
 
 cursor_size = 20  # Size of the cursor representation
 enable_human_like_click = True
@@ -220,7 +227,7 @@ is_known_command_prefixes = [
     'toggle_always', 'TOGGLE_ALWAYS', 'INIT', 'init', 'PIN', 'pin', 'RETRIEVE_HANDOFF', 'retrieve_handoff', 'HANDOFF', 'handoff',
     'RECALL', 'recall', 'CLEAR_NOPIN%', 'clear_nopin%', 'CLEAR_NONPIN', 'clear_nonpin', 'CLEAR%', 'clear%',
     '-ch', '-CH', 'CLEAR', 'clear', 'edit msgs', 'EDIT MSGS', 'REMOVE_MSGS', 'remove_msgs', 'DELETE_MSG:', 'delete_msg:',
-    'SAVEPINNEDINIT', 'savepinnedinit', 'SAVEPINNEDHANDOFF', 'savepinnedhandoff', 'SAVEEXEMPTIONS', 'saveexemptions', 'SAVE PINS', 'save pins',
+    'SAVEPINNEDINIT', 'savepinnedinit', 'move_key','SAVEPINNEDHANDOFF', 'savepinnedhandoff', 'SAVEEXEMPTIONS', 'saveexemptions', 'SAVE PINS', 'save pins',
     'SAVE ALL PINS', 'save all pins', 'HELP_VISIBILITY', 'help_visibility', 'HELP', 'help', 'hide', 'HIDE', 'toggle', 'TOGGLE',
     'TOGGLE_SKIP_COMMANDS', 'toggle_skip_commands', 'DISPLAYHISTORY', 'displayhistory', 'DHISTORY', 'dhistory', 'SAVECH', 'savech', 'VKPAG:', 'vkpag:', 'pyag:', 'PYAG:',
     'shutdown instance', 'SHUTDOWN INSTANCE', 'terminate instance', 'TERMINATE INSTANCE', 'CLEAR ALL MESSAGES', 'clear all messages',
@@ -235,8 +242,12 @@ def is_known_command(message):
     if message is None:
         return False
     # Check if the message starts with any of the known command prefixes
-    return any(message.startswith(prefix) for prefix in is_known_command_prefixes)
-
+        # Check if the message starts with any of the known command prefixes
+    for prefix in is_known_command_prefixes:
+        if message.startswith(prefix) or message.startswith(f"{prefix}("):
+            return True
+    
+    return False
 
 
 def encode_image_to_base64(image_path):
@@ -272,6 +283,7 @@ def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp
     global text_count
     global image_or_other_count
     global image_detail
+    global Recent_images_High
 
     current_time = datetime.datetime.now()
     timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S')
@@ -295,6 +307,17 @@ def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp
             default_pinned_message = "Exemption: PINNED:PRIORITY GOALS: [Editable area for priority goals (10)] APRIORITY GOALS: [Editable area for apriority goals] NOTES: [Editable area for notes]"
             update_chat_history("system", {'type': 'text', 'text': default_pinned_message}, exemption='Pinned')
 
+
+        # Collect only image entries from chat history
+        image_entries = [entry for entry in chat_history if entry['content']['type'] == 'image']
+
+
+
+        # Add the context message for chat history images
+        messages.append({
+            "role": "user",
+            "content": "Below are images from the recent chat history. Use these as a reference to understand the context and events that have occurred recently. These images will help you loosely guide your decisions and actions moving forward, providing you with a sense of continuity."
+        })
 
         # Instead of just extending the messages with text content, use the provided snippet
         # to correctly format and include images as well.
@@ -335,7 +358,7 @@ def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp
             messages.append({
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": "Based on the provided screenshot(s), please use pyag:  then use a comment # to then describe each or any screenshot then respond with an appropriate description "},  # Use your specific prompt if needed
+                    {"type": "text", "text": "Based on the provided screenshot(s), please use pyag:  ie pyag: hold(key, duration) ie pyag:hold(l,1) to move left. move keys are u,d, l, r for gameboy dpad up, gameboy dpad down, gameboy dpad left, and gameboy dpad right respectively; pyag: press(a) #at title screen/to scroll dialog text boxes, please only use pyag: press(a) by itself and not with multiple commands in single inference though; press(b) to backspace or quick no or cancel; or pyag: hold(moveKey); move keys are u for up, d for down, l for left, right for moving right; pyag: hold(r,1) to move right a few spaces, pyag: press (r) to face right if in game or to navigate one char right in selection or naming screens, or pyag: press (l) to face left or navigate one char left in selection screens, or pyag: press (u) to face up in gameworld #does not move you in gameworld, or pyag press (d) to face down or navigate one down in naming screens or text dialog boxes, press a at menu selections or scroll dialog but do not use multiple commands with pyag: press(a), where gameboy button likely requires a gameboy a press which is the keyboard key a; and then use a comment # to make action notes and to then describe each or any screenshot to your future self, then respond with an appropriate description; controls for game are: Gameboy button Up=U key, Gameboy button Down=D key, Gameboy button Left=L key, Gameboy button Right=R key, Gameboy button Button A=A key, Gameboy button Button B=B key, Button L=K key, Button R=E key  "},  # Use your specific prompt if needed
 
                     #{"type": "text", "text": "Based on the provided screenshot(s), please describe each or any screenshot then respond with the appropriate command to complete objective of playing Pokemon. If not in Pokemon try clicking on VBA emulator, and then using next response to adust notes in pinned messages of actions taken via edit msgs. If an action is required, use 'VKPAG: [command(args); command(args)]' for interface interactions, or 'edit msgs [timestamp]' to update Pinned messages. If clarification or assistance is needed, feel free to engage in a conversation without a command prefix. Otherwise please do not respond about the image unless absolutely necessary. Responses should be VKPAG or edit msgs"},  # Use your specific prompt if needed
                     {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}",
@@ -581,6 +604,7 @@ def manage_image_history(new_image_base64, image_timestamp=None, sticky=False):
     global chat_history
     global MAX_IMAGES_IN_HISTORY
     global High_Detail
+    global Recent_images_High
 
     # Check if the image already exists in the chat history
     image_already_exists = any(
@@ -604,6 +628,9 @@ def manage_image_history(new_image_base64, image_timestamp=None, sticky=False):
     # Filter to get only image entries
     image_entries = [entry for entry in chat_history if entry['content']['type'] == 'image']
 
+    for entry in image_entries:
+        entry['content']['detail'] = "low"  # Reset detail to low
+
     # Adjust detail levels based on High_Detail
     if isinstance(High_Detail, int):
         if High_Detail > 0:
@@ -626,6 +653,11 @@ def manage_image_history(new_image_base64, image_timestamp=None, sticky=False):
         if entry['content'].get('sticky', False):
             entry['content']['detail'] = "high"
 
+        # Adjust detail levels based on Recent_images_High
+    for i in range(1, Recent_images_High + 1):
+        if i <= len(image_entries):
+            image_entries[-i]['content']['detail'] = "high"        
+
     # If the limit is exceeded, remove the oldest image(s)
     while len(image_entries) > MAX_IMAGES_IN_HISTORY:
         oldest_image_entry = min(image_entries, key=lambda x: x['timestamp'])
@@ -647,6 +679,8 @@ def user_input_handler():
     global last_interaction_time
     global Always_  # global declaration to access and modify the variable
     global hide_input  # global declaration to access and modify the variable
+    global queued_user_input  # Use the global variable for queued input
+
     while running:
         # Check the elapsed time since the last interaction
         
@@ -677,11 +711,14 @@ def user_input_handler():
 
         # Move all command handling to the handle_commands function
         if is_command(user_input):
+            print("UI is command")
             handle_commands(user_input, is_user=True)
         else:
-            response_text = send_prompt_to_chatgpt(user_input)
+            #Instead of sending the input to ChatGPT, queue it for the next screenshot
+            queued_user_input = user_input
+            #send_prompt_to_chatgpt(user_input)
             #send_prompt_to_chatgpt(response_text)
-
+            #response_text = send_prompt_to_chatgpt(handoff_prompt)
         if hbuffer:
             handoff_prompt = hbuffer[-1]
             print({hbuffer})
@@ -863,6 +900,8 @@ def handle_commands(command_input, is_user=True, exemption=None):
                             display_message("error", "Invalid value for latest_image_detail. Must be 'low' or 'high'.")
                     except IndexError:
                         display_message("error", "No value provided for latest_image_detail.")
+
+
 
                 else:
                     display_message("error", f"Invalid command format: {command}")
@@ -1310,7 +1349,15 @@ def handle_pyautogui_command(cmd, args):
                     pyautogui.keyUp(key)
                 display_message("system", f"Key held for {duration} seconds: {key}")
         else:
-            display_message("error", f"Invalid key name: {key}")       
+            display_message("error", f"Invalid key name: {key}")     
+    elif cmd == "move_key":
+        try:
+            key = args[0].strip().lower()
+            tiles = int(args[1].strip())
+            move_key(key, tiles)
+        except (ValueError, IndexError):
+            display_message("error", "Invalid arguments for move_key command. Usage: move_key(key, tiles)")
+          
     elif cmd == "move":
         try:
             x, y = map(int, args)
@@ -1395,8 +1442,23 @@ def handle_pyautogui_command(cmd, args):
         display_message("system", f"Executed cursor command: {cmd} at ({x}, {y})")
 
 
-
-
+def move_key(key, tiles):
+    time.sleep(1.35)  # Wait for 3.5 seconds before executing the command
+    
+    if 1 <= tiles < 4:
+        duration = tiles * 0.175  # Multiplier for tile lengths 1-4
+    elif 4 <= tiles <= 8:
+        duration = tiles * 0.239  # Multiplier for tile lengths 5-8
+    elif 9 <= tiles < 10:
+        duration = tiles * 0.245  # Multiplier for tile lengths 9-10
+    elif tiles >= 10:
+        duration = tiles * 0.265    
+    else:
+        raise ValueError("Invalid tile range. Please choose a number between 1 and 10.")
+    
+    print('hihihi')
+    handle_pyautogui_command("hold", [key, str(duration)])
+    print('yesyesyes')
 
 
          
@@ -2042,6 +2104,7 @@ def draw_text_with_background(draw, position, text, font, text_color="white", ba
 def take_screenshot():
     global last_key  # Ensure you are referring to the global variable updated by the listener thread
     global image_timestamp
+    global queued_user_input
     if screenshot_options["current_window"]:
         # Code to capture the current window snapshot
         # Depending on the platform, you might need additional libraries and code
@@ -2098,11 +2161,19 @@ def take_screenshot():
         print(f"Screenshot Timestamp: {image_timestamp}")
         # Now, we send the prompt and include the screenshot file path
         #send_prompt_to_chatgpt("Here's a screenshot of my entire screen. Lets play Pokemon Blue in the VBA emulator. :3 We will play with individual button presses. Please simply reply to screenshots with only a command. VKPAG:click for example. If you need help, or have questions then ask away, but always be concise. with one or a short series set of individual button presses in response to each image. images will only update after a response is obtain from here. Display is 1920 X 1080 Landscape. ie click on folder/app called at mouse position x, y via move,x,y; leftclick; x,y select open keys in VBA emulator are Up: Up Arrow Please pretend like there is a parser listening for key commands and mouse commands the format from handle_commands of VKPAG:(PYAUTOGUI KEYBOARD/mouse commands, arguments);  VKPAG:hold_shift,1.5;move(100,200); rightClick(100,200); click(100,200)", screenshot_file_path)
-        send_prompt_to_chatgpt("please respond '", role="user", image_path= screenshot_file_path, image_timestamp=image_timestamp)  #image_timestamp might be buggy
+        
+        ##send_prompt_to_chatgpt("please respond with usually pyag: commands #notes structure ie at title screen or certain menues selections try  please use pyag:  ie pyag: press(a) #at title screen/to scroll dialog text boxes, please do not use press(a) with multiple commands in a single inference but multiple move commands ie pyag hold(u,0.5); pyag: hold(r, 1) is fine; or pyag: hold (moveKey,1) #one is duration; move keys are u for moving up, d for moving down, l for moving left, r for moving right; pyag: hold(r,1) to move right, or pyag: hold(l,1) to move left, or pyag: hold(u,1) to move up, or pyag hold(d,1) to move down; press a at title screen/to scroll dialog text boxes, or pyag: press (r) to face right, or pyag: press (l) to face left, or pyag: press (u) to face up, or pyag press (d) to face down,  #Notes: quotes aren't necessary around the key command and the keyboard a key happens to be the Gameboy a button and click won't do much except inside vba window focus on window '", role="user", image_path= screenshot_file_path, image_timestamp=image_timestamp)  #image_timestamp might be buggy
+        
         #auto_prompt_response = send_prompt_to_chatgpt("meow ")
         #send_prompt_to_chatgpt(auto_prompt_response)
        # send_prompt_to_chatgpt("auto prompt:", screenshot_file_path)
-
+ # Include the queued user input when sending the screenshot
+        if queued_user_input:
+            prompt = f"{queued_user_input}\n{queued_user_input}"  # Use your desired format for combining input and screenshot
+            send_prompt_to_chatgpt(prompt, role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
+            queued_user_input = None  # Clear the queued input after sending
+        else:
+            send_prompt_to_chatgpt("Screenshot taken. Please provide instructions for parser to execute actions and comment notes thoroughly for future self.", role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
 
 # Use the function and provide a path to save the screenshot
 #capture_screenshot_with_cursor_info('screenshot_info.png')
