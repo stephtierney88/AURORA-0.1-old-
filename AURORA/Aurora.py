@@ -92,7 +92,7 @@ MAX_IMPORTANT_MESSAGES = 50  # Example value
 MAX_UNIMPORTANT_MESSAGES = 100  # Example value
 IMGS_DECAY = 9999 # Setting the default decay time to 3 minutes for important messages
 UMSGS_DECAY = 1.25 # Setting the default decay time to 3 minutes for unimportant messages
-time_interval = 300.5 # Time interval between screenshots (in seconds)
+time_interval = 3 # Time interval between screenshots (in seconds)
 
 cursor_size = 20  # Size of the cursor representation
 enable_human_like_click = True
@@ -146,6 +146,7 @@ last_print_time = time.time()
 
 def audio_callback(indata, frames, time_info, status):
     global last_print_time
+    global queued_user_input
     volume_norm = np.linalg.norm(indata) * 10
     #print("Volume Norm:", volume_norm)
     #print("Indata:", indata)  # Print the initial data received
@@ -187,7 +188,8 @@ def audio_callback(indata, frames, time_info, status):
             
             # Process the ChatGPT response
             #send_prompt_to_chatgpt(chatbot_response)
-            send_prompt_to_chatgpt(transcribed_text)
+            #send_prompt_to_chatgpt(transcribed_text)
+            queued_user_input = transcribed_text
 
             audio_buffer.clear()  
     else:
@@ -358,7 +360,7 @@ def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp
             messages.append({
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": "Based on the provided screenshot(s), please use pyag:  ie pyag: hold(key, duration) ie pyag:hold(l,1) to move left. move keys are u,d, l, r for gameboy dpad up, gameboy dpad down, gameboy dpad left, and gameboy dpad right respectively; pyag: press(a) #at title screen/to scroll dialog text boxes, please only use pyag: press(a) by itself and not with multiple commands in single inference though; press(b) to backspace or quick no or cancel; or pyag: hold(moveKey); move keys are u for up, d for down, l for left, right for moving right; pyag: hold(r,1) to move right a few spaces, pyag: press (r) to face right if in game or to navigate one char right in selection or naming screens, or pyag: press (l) to face left or navigate one char left in selection screens, or pyag: press (u) to face up in gameworld #does not move you in gameworld, or pyag press (d) to face down or navigate one down in naming screens or text dialog boxes, press a at menu selections or scroll dialog but do not use multiple commands with pyag: press(a), where gameboy button likely requires a gameboy a press which is the keyboard key a; and then use a comment # to make action notes and to then describe each or any screenshot to your future self, then respond with an appropriate description; controls for game are: Gameboy button Up=U key, Gameboy button Down=D key, Gameboy button Left=L key, Gameboy button Right=R key, Gameboy button Button A=A key, Gameboy button Button B=B key, Button L=K key, Button R=E key  "},  # Use your specific prompt if needed
+                    {"type": "text", "text": "Based on the provided screenshot(s), please use pyag:  ie pyag: move_key(key, tiles) ie pyag:move_key(l,1) to move left one tile in game overworld; pyag:press(u) would move up one selection in game menus or selection screens; pyag:press(r) would move right one selection in game menus or selection screens; pyag:move_key(d,4) #would move down 4 tiles in game overworld. move keys are u,d, l, r for gameboy dpad up, gameboy dpad down, gameboy dpad left, and gameboy dpad right respectively; pyag: press(a) #at title screen/to scroll dialog text boxes, please only use pyag: press(a) by itself and not with multiple commands in single inference though; press(b) to backspace or quick no or cancel; or pyag: hold(moveKey); move keys are u for up, d for down, l for left, right for moving right; pyag: hold(r,1) to move right a few spaces, pyag: press (r) to face right if in game or to navigate one char right in selection or naming screens, or pyag: press (l) to face left or navigate one char left in selection screens, or pyag: press (u) to face up in gameworld #does not move you in gameworld, or pyag press (d) to face down or navigate one down in naming screens or text dialog boxes, press a at menu selections or scroll dialog but do not use multiple commands with pyag: press(a), where gameboy button likely requires a gameboy a press which is the keyboard key a; and then use a comment # to make action notes and to then describe each or any screenshot to your future self, then respond with an appropriate description; controls for game are: Gameboy button Up=U key, Gameboy button Down=D key, Gameboy button Left=L key, Gameboy button Right=R key, Gameboy button Button A=A key, Gameboy button Button B=B key, Button L=K key, Button R=E key  "},  # Use your specific prompt if needed
 
                     #{"type": "text", "text": "Based on the provided screenshot(s), please describe each or any screenshot then respond with the appropriate command to complete objective of playing Pokemon. If not in Pokemon try clicking on VBA emulator, and then using next response to adust notes in pinned messages of actions taken via edit msgs. If an action is required, use 'VKPAG: [command(args); command(args)]' for interface interactions, or 'edit msgs [timestamp]' to update Pinned messages. If clarification or assistance is needed, feel free to engage in a conversation without a command prefix. Otherwise please do not respond about the image unless absolutely necessary. Responses should be VKPAG or edit msgs"},  # Use your specific prompt if needed
                     {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}",
@@ -403,7 +405,7 @@ def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp
             # Reset the image detail level for older images
 
             # Add the image data to chat history using update_chat_history
-            update_chat_history("user", None, image_path=image_path, image_timestamp=image_timestamp, sticky=sticky)
+            update_chat_history("user", prompt, image_path=image_path, image_timestamp=image_timestamp, sticky=sticky)
            # image_detail = "low"
         else:
         # Handle text prompts
@@ -750,7 +752,7 @@ def get_user_input(Always_=None, hide_input=None):
 #        pyautogui.moveTo(x, y, duration=0.1)
 #    pyautogui.click(x_pixel, y_pixel)
 
-def human_like_click(x_pixel, y_pixel):
+def human_like_click(x_pixel, y_pixel): #now with random effects to better bypass captchas
     # Randomize the circle duration and radius slightly
     circle_duration = random.uniform(0.5, 1.5)
     circle_radius = random.uniform(5, 15)
