@@ -32,7 +32,7 @@ import json
 import io
 import math
 
-API_KEY=                                                                                                                                                                                                                                                                                                                "sk-proj-key"
+API_KEY=                                                                                                                                                                                                                                                                                                                "secret key here"
 POWER_WORD = ""
 REQUIRE_POWER_WORD = False
 chat_history = []
@@ -61,6 +61,17 @@ global CHECK_IMSGS_DECAY
 global userName
 global aiName
 
+# Load a TrueType font with the specified size
+
+# Customize the font size
+font_size = 23
+# Ensure this path points to a valid TrueType font file on your system
+FONT_PATH = "times.ttf"  # Times New Roman font file, change to the correct path if needed
+try:
+    font = ImageFont.truetype(FONT_PATH, font_size)
+except IOError:
+    print("Font file not found. Falling back to default font.")
+    font = ImageFont.load_default()  # Fallback to default font if TrueType font not found
 CHECK_UMSGS_DECAY = True  # Initially set to True to enable decay checks for unimportant messages
 CHECK_IMSGS_DECAY = True  # Initially set to True to enable decay checks for important messages
 Always_ = False
@@ -69,15 +80,15 @@ hide_input = None
 global last_command
 last_command = None
 screen_width, screen_height = pyautogui.size()
-MAX_IMAGES_IN_HISTORY = 8  # Global variable for the maximum number of images to retain
+MAX_IMAGES_IN_HISTORY = 9  # Global variable for the maximum number of images to retain
 #image_detail =  "high"   # "low" or depending on your requirement
 image_detail =  "low"   # "high" or depending on your requirement
 latest_image_detail = "high"  # "high" for the latest image, "low" for older images
 # Define the High_Detail global variable
 global High_Detail
-High_Detail = 3  # Initialize to 0 or set as needed  pos for recent high detail, neg for last
+High_Detail = 4  # Initialize to 0 or set as needed  pos for recent high detail, neg for last
 global Recent_images_High
-Recent_images_High= 3
+Recent_images_High= 4
 
 image_timestamp = None
 last_key = None  # Initialize the global variable
@@ -91,7 +102,7 @@ global MAX_UNIMPORTANT_MESSAGES
 MAX_IMPORTANT_MESSAGES = 50  # Example value
 MAX_UNIMPORTANT_MESSAGES = 100  # Example value
 IMGS_DECAY = 9999 # Setting the default decay time to 3 minutes for important messages
-UMSGS_DECAY = 1.25 # Setting the default decay time to 3 minutes for unimportant messages
+UMSGS_DECAY = 3.25 # Setting the default decay time to 3 minutes for unimportant messages
 time_interval = 3 # Time interval between screenshots (in seconds)
 
 cursor_size = 20  # Size of the cursor representation
@@ -400,7 +411,7 @@ def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp
             #    # Content should be an object, not a list
             #    "content": {"type": "image_url", "image_url": f"data:image/png;base64,{base64_image}", "detail": latest_image_detail}  # Changed: made image_url a key-value pair directly
             #})
-
+            print(f" In Image Path, Prompt: ", prompt)
             print(f"In send_prompt_to_chatgpt, Before user update_chat_history, Image Timestamp: {image_timestamp}")
             # Reset the image detail level for older images
 
@@ -409,6 +420,7 @@ def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp
            # image_detail = "low"
         else:
         # Handle text prompts
+            print(f" In Else, Prompt: ", prompt)        
             update_chat_history("user", prompt, exemption=exemption)
             messages.append({"role": role, "content": formatted_prompt})
 
@@ -536,6 +548,20 @@ def update_chat_history(role, content, token_count=None, image_path=None, exempt
         "sticky": sticky  # Add sticky flag
         #"timestamp": image_timestamp  # Include timestamp here
     }
+                # Also log the corresponding text as a separate entry
+        text_history_entry = {
+            "timestamp": timestamp,
+            "role": role,
+            "token_count": token_count,
+            "Exemption": exemption,
+            "last_key": last_key,
+            "mouse_position": mouse_position,
+            "last_command": last_command,
+            "content": {"type": "text", "text": content_with_timestamp}
+        }
+
+                # Append both the image and the text to the chat history
+        chat_history.append(text_history_entry)  # Log the text first
         chat_history.append(history_entry)
         # Iterate over chat history and check for image entries
         for entry in chat_history:
@@ -1918,67 +1944,163 @@ def listen_to_keyboard():
             with lock:
                 last_key = event.name
 
-# Ensure this path points to a valid TrueType font file on your system
-FONT_PATH = "times.ttf"  # Times New Roman font file, change to the correct path if needed
 
-# Function to add a grid with labeled coordinates
-def add_grid_to_screenshot(image, grid_interval):
-    draw = ImageDraw.Draw(image)
 
-    # Customize the font size
-    font_size = 23
-
-    # Load a TrueType font with the specified size
-    try:
-        font = ImageFont.truetype(FONT_PATH, font_size)
-    except IOError:
-        print("Font file not found. Falling back to default font.")
-        font = ImageFont.load_default()  # Fallback to default font if TrueType font not found
-
-    # Draw the grid and label intersections
-    for x in range(0, screen_width, grid_interval):
-        for y in range(0, screen_height, grid_interval):
-            draw.line([(x, 0), (x, screen_height)], fill="blue")
-            draw.line([(0, y), (screen_width, y)], fill="blue")
-            coordinate_label = f"{x},{y}"
-            #draw.text((x + 2, y), coordinate_label, fill="red", font=font)
-            #draw_text_with_background(draw, (x + 5, y - 15), coordinate_label, font)
+## Function to add a grid with labeled coordinates
+#def add_grid_to_screenshot(image, grid_interval):
+#    draw = ImageDraw.Draw(image)
+#
+#    # Customize the font size
+#    font_size = 23
+#
+#    # Load a TrueType font with the specified size
+#    try:
+#        font = ImageFont.truetype(FONT_PATH, font_size)
+#    except IOError:
+#        print("Font file not found. Falling back to default font.")
+#        font = ImageFont.load_default()  # Fallback to default font if TrueType font not found
+#
+#    # Draw the grid and label intersections
+#    for x in range(0, screen_width, grid_interval):
+#        for y in range(0, screen_height, grid_interval):
+#            draw.line([(x, 0), (x, screen_height)], fill="blue")
+#            draw.line([(0, y), (screen_width, y)], fill="blue")
+#            coordinate_label = f"{x},{y}"
+#            #draw.text((x + 2, y), coordinate_label, fill="red", font=font)
+#            #draw_text_with_background(draw, (x + 5, y - 15), coordinate_label, font)
 
 # Function to add a dot grid with labeled coordinates
-def add_grid_to_screenshot2(image, grid_interval):
-    print("Starting add_grid_to_screenshot2 function")
+#def add_grid_to_screenshot2(image, grid_interval):
+#    print("Starting add_grid_to_screenshot2 function")
+#    draw = ImageDraw.Draw(image)
+#
+#    # Customize the font size
+#    font_size = 23
+#
+#    # Load a TrueType font with the specified size
+#    try:
+#        font = ImageFont.truetype(FONT_PATH, font_size)
+#    except IOError:
+#        print("Font file not found. Falling back to default font.")
+#        font = ImageFont.load_default()  # Fallback to default font if TrueType font not found
+#
+#    screen_width, screen_height = image.size
+#
+#    # Define key points to label
+#    key_points = [
+#        (150, 150), (450, 150), (150, 450), (450, 450),
+#        (900, 150), (1200, 150), (900, 450), (1200, 450),
+#        (600, 750), (1050, 750), (1350, 300), (1350, 600),
+#         (1350, 750), (750, 300)
+#    ]
+#
+#    # Draw dots and coordinates with background boxes on the top row, left column, and key points
+#    # Draw larger dots and coordinates with background boxes on the top row, left column, and key points
+#    for x in range(0, screen_width, grid_interval):
+#        for y in range(0, screen_height, grid_interval):
+#            draw.ellipse((x-4, y-4, x+4, y+4), fill="red", outline="red")  # Draw the larger dot
+#            if (x == 0 or y == 0) or (x, y) in key_points:  # Top row, left column, or key points
+#                coordinate_label = f"{x},{y}"
+#                draw_text_with_background(draw, (x + 5, y - 15), coordinate_label, font, background_opacity=128, shift_x=5, shift_y=20)
+#    print("Finished add_grid_to_screenshot2 function")
+
+
+# Function to add a grid with color-coded tiles and labeled coordinates
+
+
+# Function to add the colored tile grid with only directional labels
+def add_colored_tile_grid_v3(image, center_tile, tile_size, colors_x, colors_y):
+    
     draw = ImageDraw.Draw(image)
+        # Calculate half-tile offsets for proper grid alignment
+    half_tile_offset = (tile_size[0] // 2, tile_size[1] // 2)
+    # Apply a half-tile shift to center the grid
+    x_offset = -half_tile_offset[0]
+    y_offset = -half_tile_offset[1]
 
-    # Customize the font size
-    font_size = 23
+    # Loop through the grid around the center tile
+    for i in range(-5, 6):  # Adjust the range for the grid size (5 tiles in each direction)
+        for j in range(-5, 6):
+            # Calculate the position of the current tile
+            tile_x = center_tile[0] + i * tile_size[0] + x_offset
+            tile_y = center_tile[1] + j * tile_size[1] + y_offset
 
-    # Load a TrueType font with the specified size
-    try:
-        font = ImageFont.truetype(FONT_PATH, font_size)
-    except IOError:
-        print("Font file not found. Falling back to default font.")
-        font = ImageFont.load_default()  # Fallback to default font if TrueType font not found
+            # Determine the color for X and Y distances
+            color_x = colors_x[min(abs(i), len(colors_x) - 1)]
+            color_y = colors_y[min(abs(j), len(colors_y) - 1)]
 
-    screen_width, screen_height = image.size
+            # Draw the tile with the appropriate colors
+            draw_tile_with_colors(draw, tile_x, tile_y, tile_size, color_x, color_y)
 
-    # Define key points to label
-    key_points = [
-        (150, 150), (450, 150), (150, 450), (450, 450),
-        (900, 150), (1200, 150), (900, 450), (1200, 450),
-        (600, 750), (1050, 750), (1350, 300), (1350, 600),
-         (1350, 750), (750, 300)
-    ]
+            # Label only the direct horizontal and vertical tiles (1-5 tiles away)
+            if i == 0 and j != 0:  # Vertical tiles (Up/Down)
+                label = f"{abs(j)}T" + ("U" if j < 0 else "D")
+                draw_text_with_background(draw, (tile_x + 5, tile_y - 15), label, font)
+            elif j == 0 and i != 0:  # Horizontal tiles (Left/Right)
+                label = f"{abs(i)}T" + ("L" if i < 0 else "R")
+                draw_text_with_background(draw, (tile_x + 5, tile_y - 15), label, font)
 
-    # Draw dots and coordinates with background boxes on the top row, left column, and key points
-    # Draw larger dots and coordinates with background boxes on the top row, left column, and key points
-    for x in range(0, screen_width, grid_interval):
-        for y in range(0, screen_height, grid_interval):
-            draw.ellipse((x-4, y-4, x+4, y+4), fill="red", outline="red")  # Draw the larger dot
-            if (x == 0 or y == 0) or (x, y) in key_points:  # Top row, left column, or key points
-                coordinate_label = f"{x},{y}"
-                draw_text_with_background(draw, (x + 5, y - 15), coordinate_label, font, background_opacity=128, shift_x=5, shift_y=20)
-    print("Finished add_grid_to_screenshot2 function")
 
+#def add_grid_to_screenshot3p0(image, grid_interval, center_tile, tile_size, colors_x, colors_y):
+#    print("Starting add_grid_to_screenshot2 function")
+#    draw = ImageDraw.Draw(image)
+#
+#    # Customize the font size
+#    font_size = 23
+#
+#    # Load a TrueType font with the specified size
+#    try:
+#        font = ImageFont.truetype(FONT_PATH, font_size)
+#    except IOError:
+#        print("Font file not found. Falling back to default font.")
+#        font = ImageFont.load_default()  # Fallback to default font if TrueType font not found
+#
+#    screen_width, screen_height = image.size
+#
+#    # Calculate half-tile offsets for proper grid alignment
+#    half_tile_offset = (tile_size[0] // 2, tile_size[1] // 2)
+#    
+#    # Apply a half-tile shift to center the grid
+#    x_offset = -half_tile_offset[0]
+#    y_offset = -half_tile_offset[1]
+#
+#    # Loop through the grid around the center tile, applying the colors based on X and Y distance
+#    for i in range(-5, 6):  # Adjust the range as necessary for the grid size
+#        for j in range(-5, 6):
+#            # Calculate the position of the current tile with offsets for the half-tile shift
+#            tile_x = center_tile[0] + i * tile_size[0] + x_offset
+#            tile_y = center_tile[1] + j * tile_size[1] + y_offset
+#
+#            # Determine the color based on the X and Y distance from the center
+#            color_x = colors_x[min(abs(i), len(colors_x) - 1)]  # Use column color (X axis) for sides
+#            color_y = colors_y[min(abs(j), len(colors_y) - 1)]  # Use row color (Y axis) for top/bottom
+#
+#            # Draw the tile with the appropriate colors (colored borders based on X/Y distance)
+#            draw_tile_with_colors(draw, tile_x, tile_y, tile_size, color_x, color_y)
+#
+#            # Optionally, label the grid coordinates if you want
+#            coordinate_label = f"{tile_x},{tile_y}"
+#            draw_text_with_background(draw, (tile_x + 5, tile_y - 15), coordinate_label, font)
+#
+#    print("Finished add_grid_to_screenshot2 function")
+
+#def draw_tile_with_colors(draw, x, y, tile_size, color_x, color_y):
+#    # Draw the floor (left and right) for the column (X)
+#    draw.line([(x, y), (x, y + tile_size[1])], fill=color_x, width=5)  # Left (floor)
+#    draw.line([(x + tile_size[0], y), (x + tile_size[0], y + tile_size[1])], fill=color_x, width=5)  # Right (ceiling)
+#    
+#    # Draw the top and bottom for the row (Y)
+#    draw.line([(x, y), (x + tile_size[0], y)], fill=color_y, width=5)  # Top
+#    draw.line([(x, y + tile_size[1]), (x + tile_size[0], y + tile_size[1])], fill=color_y, width=5)  # Bottom
+# Helper function to draw the tiles with X/Y axis colors
+def draw_tile_with_colors(draw, x, y, tile_size, color_x, color_y):
+    # Draw the left and right borders (X axis)
+    draw.line([(x, y), (x, y + tile_size[1])], fill=color_x, width=3)  # Left
+    draw.line([(x + tile_size[0], y), (x + tile_size[0], y + tile_size[1])], fill=color_x, width=3)  # Right
+
+    # Draw the top and bottom borders (Y axis)
+    draw.line([(x, y), (x + tile_size[0], y)], fill=color_y, width=3)  # Top
+    draw.line([(x, y + tile_size[1]), (x + tile_size[0], y + tile_size[1])], fill=color_y, width=3)  # Bottom
 
 
 def draw_cursor(draw, cursor_position, cursor_size):
@@ -2067,12 +2189,45 @@ def draw_cursor(draw, cursor_position, cursor_size):
 #    # Draw the text over the background rectangle
 #    draw.text((position[0] + shift_x, position[1] + shift_y), text, fill=text_color, font=font)
 
+#def draw_text_with_background(draw, position, text, font, text_color="white", background_color=(0, 0, 0), background_opacity=128, shift_x=5, shift_y=20):
+#    # Calculate text size using textbbox
+#    text_bbox = draw.textbbox(position, text, font=font)
+#    text_width = text_bbox[2] - text_bbox[0]
+#    text_height = text_bbox[3] - text_bbox[1]
+#    
+#    # Set padding around the text
+#    padding = 4
+#
+#    # Define the background rectangle position with shift
+#    background_position = (
+#        position[0] - padding + shift_x,
+#        position[1] - padding + shift_y,
+#        position[0] + text_width + padding + shift_x,
+#        position[1] + text_height + padding + shift_y
+#    )
+
+    # Create a transparent image for the background
+#    background_image = Image.new('RGBA', draw.im.size, (0, 0, 0, 0))
+#    background_draw = ImageDraw.Draw(background_image)
+#    background_color_with_opacity = (background_color[0], background_color[1], background_color[2], background_opacity)
+#    background_draw.rectangle(background_position, fill=background_color_with_opacity)
+#
+#    # Extract the alpha channel from the background image
+#    alpha = background_image.split()[3]
+#
+#    # Composite the transparent background onto the original image using paste with a mask
+#    bounding_box = (0, 0, draw.im.size[0], draw.im.size[1])
+#    draw.im.paste(background_image.im, bounding_box, alpha.im)
+#
+#    # Draw the text over the background rectangle
+#    draw.text((position[0] + shift_x, position[1] + shift_y), text, fill=text_color, font=font)
+# Helper function to draw text with background
 def draw_text_with_background(draw, position, text, font, text_color="white", background_color=(0, 0, 0), background_opacity=128, shift_x=5, shift_y=20):
-    # Calculate text size using textbbox
+    # Calculate text size
     text_bbox = draw.textbbox(position, text, font=font)
     text_width = text_bbox[2] - text_bbox[0]
     text_height = text_bbox[3] - text_bbox[1]
-    
+
     # Set padding around the text
     padding = 4
 
@@ -2100,6 +2255,17 @@ def draw_text_with_background(draw, position, text, font, text_color="white", ba
     # Draw the text over the background rectangle
     draw.text((position[0] + shift_x, position[1] + shift_y), text, fill=text_color, font=font)
 
+# Function to add a dot grid with labeled coordinates
+def add_dot_grid_with_labels(image, grid_interval, key_points):
+    draw = ImageDraw.Draw(image)
+
+    # Draw dots and coordinates on the key points
+    for x in range(0, image.size[0], grid_interval):
+        for y in range(0, image.size[1], grid_interval):
+            draw.ellipse((x-4, y-4, x+4, y+4), fill="red", outline="red")  # Draw the larger red dot
+            if (x == 0 or y == 0) or (x, y) in key_points:  # Label only top row, left column, and key points
+                coordinate_label = f"{x},{y}"
+                draw_text_with_background(draw, (x + 5, y - 15), coordinate_label, font, background_opacity=128)
 
 
 # Function to take a screenshot
@@ -2141,8 +2307,27 @@ def take_screenshot():
         #add_grid_to_screenshot(screenshot, grid_interval=150)  # Set grid_interval as needed
         # Draw the grid with labeled coordinates
         text_info = f"Cursor Position: {cursor_position} | Last Key: {current_last_key} | Timestamp: {image_timestamp}"
-        add_grid_to_screenshot2(screenshot, grid_interval=150)  # Set grid_interval as needed
 
+        # Add the colored tile grid with directional labels
+        add_colored_tile_grid_v3(screenshot, center_tile=(719, 444), tile_size=(162, 98),
+                                 colors_x=['blue', 'red', 'orange', 'yellow', 'purple', 'black'],
+                                 colors_y=['blue', 'red', 'orange', 'yellow', 'purple', 'black'])
+
+        # Add the red dot grid with labels
+     #   add_dot_grid_with_labels1111(screenshot, grid_interval=150, key_points=[
+     #       (150, 150), (450, 150), (150, 450), (450, 450),
+     #       (900, 150), (1200, 150), (900, 450), (1200, 450),
+     #       (600, 750), (1050, 750), (1350, 300), (1350, 600),
+     #       (1350, 750), (750, 300)
+     #   ])
+
+        # Add the red dot grid with labels
+        add_dot_grid_with_labels(screenshot, grid_interval=150, key_points=[
+            (150, 150), (300, 750), (450, 150), 
+            (900, 150), (1200, 150),
+            (1050, 750), (1350, 300), (1350, 600),
+            (1350, 750)
+        ])
 
         # Customize the font size
         font_size = 23
@@ -2171,11 +2356,11 @@ def take_screenshot():
        # send_prompt_to_chatgpt("auto prompt:", screenshot_file_path)
  # Include the queued user input when sending the screenshot
         if queued_user_input:
-            prompt = f"{queued_user_input}\n{queued_user_input}"  # Use your desired format for combining input and screenshot
+            prompt = f"user input: {queued_user_input}"  # Use your desired format for combining input and screenshot
             send_prompt_to_chatgpt(prompt, role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
             queued_user_input = None  # Clear the queued input after sending
         else:
-            send_prompt_to_chatgpt("Screenshot taken. Please provide instructions for parser to execute actions and comment notes thoroughly for future self.", role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
+            send_prompt_to_chatgpt("System: Screenshot taken. Please provide instructions for parser to execute actions and comment notes thoroughly for future self or to communicate to user or user input.", role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
 
 # Use the function and provide a path to save the screenshot
 #capture_screenshot_with_cursor_info('screenshot_info.png')
