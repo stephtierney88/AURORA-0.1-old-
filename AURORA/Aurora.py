@@ -32,6 +32,7 @@ from getpass import getpass
 import json
 import io
 import math
+import queue
 
 API_KEY=                                                                                                                                                                                                                                                                                                                "sk-proj-SECRETKEY"
 POWER_WORD = ""
@@ -96,7 +97,7 @@ last_key = None  # Initialize the global variable
 mouse_position = {"x": 0, "y": 0}  # Initialize as a dictionary
 
 global queued_user_input
-queued_user_input = []
+queued_user_input = queue.Queue()
 
 global MAX_IMPORTANT_MESSAGES
 global MAX_UNIMPORTANT_MESSAGES
@@ -130,7 +131,7 @@ lock = RLock()
 mouse_position_lock = RLock()
 last_key_lock = RLock()
 image_history_lock = RLock()
-queued_input_lock = RLock() #RLock? 
+#queued_input_lock = RLock() #RLock? 
 
 # Parameters
 threshold = 16.11  
@@ -161,28 +162,21 @@ def audio_callback(indata, frames, time_info, status):
     global last_print_time
     global queued_user_input
     volume_norm = np.linalg.norm(indata) * 10
-    #print("Volume Norm:", volume_norm)
-    #print("Indata:", indata)  # Print the initial data received
 
     if volume_norm < threshold:
         if len(audio_buffer) > sampling_rate * pause_duration:  
             with tempfile.NamedTemporaryFile(delete=False, suffix=".wav", dir=script_directory) as temp_file:
                 audio_data = np.array(audio_buffer, dtype=np.float32)
-                #print("Audio Data before conversion:", audio_buffer)  # Print data in the buffer
-                #print("Converted Audio Data:", audio_data)  # Print the converted data
                 audio_segment = AudioSegment(
-                audio_data.tobytes(),
-                frame_rate=sampling_rate,
-                sample_width=audio_data.dtype.itemsize,
-                channels=2
+                    audio_data.tobytes(),
+                    frame_rate=sampling_rate,
+                    sample_width=audio_data.dtype.itemsize,
+                    channels=2
                 )
 
-                
                 # Adjust the sample width to a valid value (e.g., 2)
                 audio_segment = audio_segment.set_sample_width(2)
 
-                #play(audio_segment)
-                print("Audio Data: ", audio_data)  # Add this line to check the content of audio_data
                 write(temp_file.name, sampling_rate, audio_data.astype('float32'))
                 response = openai.Audio.transcribe(
                     api_key=API_KEY,
@@ -190,25 +184,17 @@ def audio_callback(indata, frames, time_info, status):
                     file=open(temp_file.name, "rb")
                 )
             print("My Response: ", response)     
-            
-            #os.unlink(temp_file.name)
-            
+
             # Assuming the transcribed text is in `response['text']`
             transcribed_text = response['text']
-            
-            # Send the transcribed text to ChatGPT
-            #chatbot_response = send_prompt_to_chatgpt(transcribed_text)
-            
-            # Process the ChatGPT response
-            #send_prompt_to_chatgpt(chatbot_response)
-            #send_prompt_to_chatgpt(transcribed_text)
-            #queued_user_input = transcribed_text
-            # Assuming the transcribed text is in `transcribed_text`
-            with queued_input_lock:
-                queued_user_input.append(transcribed_text)
+
+            # Put the transcribed text into the queue
+            queued_user_input.put(transcribed_text)
+
             audio_buffer.clear()  
     else:
         audio_buffer.extend(indata.tolist())
+
 
 
 
@@ -2337,13 +2323,13 @@ def add_grids_and_labels(screenshot, cursor_position, current_last_key):
 # Function to handle sending the screenshot and user input
 def handle_queued_input(screenshot_file_path, image_timestamp):
     global queued_user_input
-    with queued_input_lock:
-        if queued_user_input:
-            combined_input = ' '.join(queued_user_input)
-            queued_user_input.clear()
-        else:
-            combined_input = None
-    if combined_input:
+
+    combined_input_list = []
+    while not queued_user_input.empty():
+        combined_input_list.append(queued_user_input.get())
+
+    if combined_input_list:
+        combined_input = ' '.join(combined_input_list)
         prompt = f"user input: {combined_input}"
         send_prompt_to_chatgpt(prompt, role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
     else:
