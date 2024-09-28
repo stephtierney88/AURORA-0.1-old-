@@ -24,6 +24,7 @@ from PIL import ImageDraw
 from PIL import ImageFont # ImageFilter
 import random
 from threading import Lock
+from threading import RLock
 from scipy.io.wavfile import write
 import tempfile
 import ffmpeg
@@ -32,7 +33,7 @@ import json
 import io
 import math
 
-API_KEY=                                                                                                                                                                                                                                                                                                                "secret key here"
+API_KEY=                                                                                                                                                                                                                                                                                                                "sk-proj-SECRETKEY"
 POWER_WORD = ""
 REQUIRE_POWER_WORD = False
 chat_history = []
@@ -43,7 +44,7 @@ show_ai_text = True
 hide_ai_commands = False
 hide_user_commands = False
 tokenizer = tiktoken.get_encoding("cl100k_base")
-token_limit = 8100  # Set this to whatever limit you want
+token_limit = 18100  # Set this to whatever limit you want
 token_counter = 0  # This will keep track of the tokens used so far
 character_name = "Aurora"
 last_interaction_time = time.time()
@@ -80,30 +81,30 @@ hide_input = None
 global last_command
 last_command = None
 screen_width, screen_height = pyautogui.size()
-MAX_IMAGES_IN_HISTORY = 9  # Global variable for the maximum number of images to retain
+MAX_IMAGES_IN_HISTORY = 15  # Global variable for the maximum number of images to retain
 #image_detail =  "high"   # "low" or depending on your requirement
 image_detail =  "low"   # "high" or depending on your requirement
 latest_image_detail = "high"  # "high" for the latest image, "low" for older images
 # Define the High_Detail global variable
 global High_Detail
-High_Detail = 4  # Initialize to 0 or set as needed  pos for recent high detail, neg for last
+High_Detail = 7  # Initialize to 0 or set as needed  pos for recent high detail, neg for last
 global Recent_images_High
-Recent_images_High= 4
+Recent_images_High= 7
 
 image_timestamp = None
 last_key = None  # Initialize the global variable
 mouse_position = {"x": 0, "y": 0}  # Initialize as a dictionary
 
 global queued_user_input
-queued_user_input = None
+queued_user_input = []
 
 global MAX_IMPORTANT_MESSAGES
 global MAX_UNIMPORTANT_MESSAGES
-MAX_IMPORTANT_MESSAGES = 50  # Example value
+MAX_IMPORTANT_MESSAGES = 100  # Example value
 MAX_UNIMPORTANT_MESSAGES = 100  # Example value
 IMGS_DECAY = 9999 # Setting the default decay time to 3 minutes for important messages
-UMSGS_DECAY = 3.25 # Setting the default decay time to 3 minutes for unimportant messages
-time_interval = 3 # Time interval between screenshots (in seconds)
+UMSGS_DECAY = 3.55 # Setting the default decay time to 3 minutes for unimportant messages
+time_interval = 6.5 # Time interval between screenshots (in seconds)
 
 cursor_size = 20  # Size of the cursor representation
 enable_human_like_click = True
@@ -125,14 +126,15 @@ channels = 2
 # Set the default device (verify that device 20 is indeed the correct device)
 sd.default.device = 1
 
-lock = Lock()
-mouse_position_lock = Lock()
-last_key_lock = Lock()
-image_history_lock = Lock()
+lock = RLock()
+mouse_position_lock = RLock()
+last_key_lock = RLock()
+image_history_lock = RLock()
+queued_input_lock = RLock() #RLock? 
 
 # Parameters
-threshold = 31.11  
-pause_duration = 1.8  
+threshold = 16.11  
+pause_duration =  1.33  #1.8  
 #sampling_rate = 44100 
 sampling_rate = fs 
 audio_buffer = []
@@ -200,8 +202,10 @@ def audio_callback(indata, frames, time_info, status):
             # Process the ChatGPT response
             #send_prompt_to_chatgpt(chatbot_response)
             #send_prompt_to_chatgpt(transcribed_text)
-            queued_user_input = transcribed_text
-
+            #queued_user_input = transcribed_text
+            # Assuming the transcribed text is in `transcribed_text`
+            with queued_input_lock:
+                queued_user_input.append(transcribed_text)
             audio_buffer.clear()  
     else:
         audio_buffer.extend(indata.tolist())
@@ -360,7 +364,28 @@ def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp
         # Add the current prompt with a timestamp to messages
         formatted_prompt = f"[{timestamp}] {prompt}"    
         #Now, you would add the current prompt or image that's being processed.
-        if image_path:
+
+        
+        # Handle the case where both queued user input and an image path exist
+        if image_path and queued_user_input:
+            # Avoid updating chat history twice. Update only for the image.
+            print("Image and queued user input detected")
+
+            # Set the base64 encoding for the image
+            base64_image = encode_image_to_base64(image_path)
+            messages.append({
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": f"User input: {queued_user_input}"},
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}", "detail": image_detail}}
+                ]
+            })
+
+            # Update chat history once for both the image and the prompt if exemption is not "queued"
+            if exemption != "queued":
+                update_chat_history("user", queued_user_input, image_path=image_path, image_timestamp=image_timestamp, sticky=sticky)
+
+        elif image_path:
             # Set the detail level for the latest image
             #image_detail = latest_image_detail
             # If an image path is provided, you process it here as you have done before.
@@ -379,6 +404,9 @@ def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp
                  "detail": image_detail}
             }]
             })
+
+
+
             #print("image path msg: ")
             print(image_detail + " detail in image path message append")
             #print(messages)
@@ -416,12 +444,20 @@ def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp
             # Reset the image detail level for older images
 
             # Add the image data to chat history using update_chat_history
-            update_chat_history("user", prompt, image_path=image_path, image_timestamp=image_timestamp, sticky=sticky)
+            #update_chat_history("user", prompt, image_path=image_path, image_timestamp=image_timestamp, sticky=sticky)
            # image_detail = "low"
+                    # Update chat history for the image if exemption is not "queued"
+            if exemption != "queued":
+                update_chat_history("user", prompt, image_path=image_path, image_timestamp=image_timestamp, sticky=sticky)
+
         else:
         # Handle text prompts
-            print(f" In Else, Prompt: ", prompt)        
-            update_chat_history("user", prompt, exemption=exemption)
+            print(f" In Else, Prompt: ", prompt)  
+                        # If no image, just send the prompt as text
+            print("Text prompt only detected")
+            if exemption != "queued":
+                update_chat_history("user", prompt, exemption=exemption)      
+            #update_chat_history("user", prompt, exemption=exemption)
             messages.append({"role": role, "content": formatted_prompt})
 
 
@@ -2268,103 +2304,240 @@ def add_dot_grid_with_labels(image, grid_interval, key_points):
                 draw_text_with_background(draw, (x + 5, y - 15), coordinate_label, font, background_opacity=128)
 
 
+
+
+
+# Function to add grids, tiles, and labels
+def add_grids_and_labels(screenshot, cursor_position, current_last_key):
+    # Continue with your grid and tile drawing
+    add_colored_tile_grid_v3(screenshot, center_tile=(719, 444), tile_size=(162, 98),
+                             colors_x=['blue', 'red', 'orange', 'yellow', 'purple', 'black'],
+                             colors_y=['blue', 'red', 'orange', 'yellow', 'purple', 'black'])
+
+    add_dot_grid_with_labels(screenshot, grid_interval=150, key_points=[
+        (150, 150), (300, 750), (450, 150), 
+        (900, 150), (1200, 150),
+        (1050, 750), (1350, 300), (1350, 600),
+        (1350, 750)
+    ])
+
+    # Customize the font size
+    font_size = 23
+    try:
+        font = ImageFont.truetype(FONT_PATH, font_size)
+    except IOError:
+        print("Font file not found. Falling back to default font.")
+        font = ImageFont.load_default()
+
+    # Draw text with background
+    text_position = (40, 55)  # Position of the text
+    text_info = f"Cursor Position: {cursor_position} | Last Key: {current_last_key} | Timestamp: {image_timestamp}"
+    draw_text_with_background(draw, text_position, text_info, font, background_opacity=128, shift_x=5, shift_y=20)
+
+# Function to handle sending the screenshot and user input
+def handle_queued_input(screenshot_file_path, image_timestamp):
+    global queued_user_input
+    with queued_input_lock:
+        if queued_user_input:
+            combined_input = ' '.join(queued_user_input)
+            queued_user_input.clear()
+        else:
+            combined_input = None
+    if combined_input:
+        prompt = f"user input: {combined_input}"
+        send_prompt_to_chatgpt(prompt, role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
+    else:
+        send_prompt_to_chatgpt("System: Screenshot taken. Please provide instructions...", role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
+
+
+   # if queued_user_input:
+   #     prompt = f"user input: {queued_user_input}"
+   #     send_prompt_to_chatgpt(prompt, role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
+   #     queued_user_input = None
+   # else:
+   #     send_prompt_to_chatgpt("System: Screenshot taken. Please provide instructions...", role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
+#def take_screenshotOld():
+#    global last_key  # Ensure you are referring to the global variable updated by the listener thread
+#    global image_timestamp
+#    global queued_user_input
+#
+#
+#    
+#    # Check if the third option for pyautogui native screenshot is enabled
+#    if screenshot_options.get("native_cursor_screenshot"):
+#        # Capture entire screen with cursor using pyautogui.screenshot()
+#        screenshot = pyautogui.screenshot()
+#
+#        # Get the mouse cursor's current position
+#        cursor_position = pyautogui.position()
+#
+#        # Ensure thread-safe access to `last_key`
+#        with lock:
+#            current_last_key = last_key
+#
+#        # Draw additional elements if needed
+#        draw = ImageDraw.Draw(screenshot)
+#        draw_cursor(draw, cursor_position, cursor_size)  # Optional custom cursor drawing
+#
+#        # Add grid, tiles, and text like before
+#        add_grids_and_labels(screenshot, cursor_position, current_last_key)
+#
+#
+#    if screenshot_options["current_window"]:
+#        # Code to capture the current window snapshot
+#        # Depending on the platform, you might need additional libraries and code
+#        pass
+#    
+#    if screenshot_options["entire_screen"]:
+#        # Capture entire screen
+#        screenshot = ImageGrab.grab()
+#    
+#        # Get the mouse cursor's current position
+#        cursor_position = pyautogui.position()
+#
+#        # Use the global last_key variable instead of reading the event here
+#        with lock:  # Ensure thread-safe access to last_key
+#            current_last_key = last_key
+#
+#        # Draw a representation of the cursor on the screenshot
+#        draw = ImageDraw.Draw(screenshot)
+#
+#        
+#        # Draw the enhanced cursor
+#        draw_cursor(draw, cursor_position, cursor_size)
+#
+#        #draw.rectangle([cursor_position.x, cursor_position.y, cursor_position.x + cursor_size, cursor_position.y + cursor_size], outline="red")
+#
+#        current_time = datetime.datetime.now()
+#        image_timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S')
+#        timestamp = int(time.time())
+#        # You can also draw the cursor position and last key pressed on the screenshot for visibility
+#        text_position = (40, 55)  # Position of the text
+#        # Add the grid with labeled coordinates
+#        #add_grid_to_screenshot(screenshot, grid_interval=150)  # Set grid_interval as needed
+#        # Draw the grid with labeled coordinates
+#        text_info = f"Cursor Position: {cursor_position} | Last Key: {current_last_key} | Timestamp: {image_timestamp}"
+#
+#        # Add the colored tile grid with directional labels
+#        add_colored_tile_grid_v3(screenshot, center_tile=(719, 444), tile_size=(162, 98),
+#                                 colors_x=['blue', 'red', 'orange', 'yellow', 'purple', 'black'],
+#                                 colors_y=['blue', 'red', 'orange', 'yellow', 'purple', 'black'])
+#
+#        # Add the red dot grid with labels
+#     #   add_dot_grid_with_labels1111(screenshot, grid_interval=150, key_points=[
+#     #       (150, 150), (450, 150), (150, 450), (450, 450),
+#     #       (900, 150), (1200, 150), (900, 450), (1200, 450),
+#     #       (600, 750), (1050, 750), (1350, 300), (1350, 600),
+#     #       (1350, 750), (750, 300)
+#     #   ])
+#
+#        # Add the red dot grid with labels
+#        add_dot_grid_with_labels(screenshot, grid_interval=150, key_points=[
+#            (150, 150), (300, 750), (450, 150), 
+#            (900, 150), (1200, 150),
+#            (1050, 750), (1350, 300), (1350, 600),
+#            (1350, 750)
+#        ])
+#
+#        # Customize the font size
+#        font_size = 23
+#
+#        # Load a TrueType font with the specified size
+#        try:
+#            font = ImageFont.truetype(FONT_PATH, font_size)
+#        except IOError:
+#            print("Font file not found. Falling back to default font.")
+#            font = ImageFont.load_default()  # Fallback to default font if TrueType font not found
+#
+#        # Draw text with background
+#        draw_text_with_background(draw, text_position, text_info, font, background_opacity=128, shift_x=5, shift_y=20)
+#        #draw.text(text_position, f"Cursor Pos: {cursor_position} | Last Key: {current_last_key} | Timestamp: {image_timestamp} ", fill="white")
+#
+#        screenshot_file_path = f"{logging_folder}/{timestamp}.png"
+#        screenshot.save(screenshot_file_path)
+#        print(f"Screenshot Timestamp: {image_timestamp}")
+#        # Now, we send the prompt and include the screenshot file path
+#        #send_prompt_to_chatgpt("Here's a screenshot of my entire screen. Lets play Pokemon Blue in the VBA emulator. :3 We will play with individual button presses. Please simply reply to screenshots with only a command. VKPAG:click for example. If you need help, or have questions then ask away, but always be concise. with one or a short series set of individual button presses in response to each image. images will only update after a response is obtain from here. Display is 1920 X 1080 Landscape. ie click on folder/app called at mouse position x, y via move,x,y; leftclick; x,y select open keys in VBA emulator are Up: Up Arrow Please pretend like there is a parser listening for key commands and mouse commands the format from handle_commands of VKPAG:(PYAUTOGUI KEYBOARD/mouse commands, arguments);  VKPAG:hold_shift,1.5;move(100,200); rightClick(100,200); click(100,200)", screenshot_file_path)
+#        
+#        ##send_prompt_to_chatgpt("please respond with usually pyag: commands #notes structure ie at title screen or certain menues selections try  please use pyag:  ie pyag: press(a) #at title screen/to scroll dialog text boxes, please do not use press(a) with multiple commands in a single inference but multiple move commands ie pyag hold(u,0.5); pyag: hold(r, 1) is fine; or pyag: hold (moveKey,1) #one is duration; move keys are u for moving up, d for moving down, l for moving left, r for moving right; pyag: hold(r,1) to move right, or pyag: hold(l,1) to move left, or pyag: hold(u,1) to move up, or pyag hold(d,1) to move down; press a at title screen/to scroll dialog text boxes, or pyag: press (r) to face right, or pyag: press (l) to face left, or pyag: press (u) to face up, or pyag press (d) to face down,  #Notes: quotes aren't necessary around the key command and the keyboard a key happens to be the Gameboy a button and click won't do much except inside vba window focus on window '", role="user", image_path= screenshot_file_path, image_timestamp=image_timestamp)  #image_timestamp might be buggy
+#        
+#        #auto_prompt_response = send_prompt_to_chatgpt("meow ")
+#        #send_prompt_to_chatgpt(auto_prompt_response)
+#       # send_prompt_to_chatgpt("auto prompt:", screenshot_file_path)
+# # Include the queued user input when sending the screenshot
+#        if queued_user_input:
+#            # Update chat history with the queued input, but set an exemption flag so it won't be added again.
+#            update_chat_history("user", queued_user_input, exemption="queued")
+#
+#            # Send the input along with the screenshot, without adding it to the chat history again
+#
+#            prompt = f"user input: {queued_user_input}"  # Use your desired format for combining input and screenshot
+#            send_prompt_to_chatgpt(prompt, role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
+#            queued_user_input = None  # Clear the queued input after sending
+#        else:
+#            send_prompt_to_chatgpt("System: Screenshot taken. Please provide instructions for parser to execute actions and comment notes thoroughly for future self or to communicate to user or user input.", role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
+#    
+    # Use the function and provide a path to save the screenshot
+    #capture_screenshot_with_cursor_info('screenshot_info.png')
 # Function to take a screenshot
 def take_screenshot():
     global last_key  # Ensure you are referring to the global variable updated by the listener thread
     global image_timestamp
     global queued_user_input
-    if screenshot_options["current_window"]:
+
+    # Check if the third option for pyautogui native screenshot is enabled
+    if screenshot_options.get("native_cursor_screenshot"):
+        # Capture entire screen with cursor using pyautogui.screenshot()
+        screenshot = pyautogui.screenshot()
+
+        # Get the mouse cursor's current position
+        cursor_position = pyautogui.position()
+
+        # Ensure thread-safe access to `last_key`
+        with lock:
+            current_last_key = last_key
+
+        # Draw additional elements if needed
+        draw = ImageDraw.Draw(screenshot)
+        #draw_cursor(draw, cursor_position, cursor_size)  # Optional custom cursor drawing
+
+        # Add grid, tiles, and text like before
+        add_grids_and_labels(screenshot, cursor_position, current_last_key)
+
+    # First option: Capture current window (if implemented)
+    elif screenshot_options["current_window"]:
         # Code to capture the current window snapshot
-        # Depending on the platform, you might need additional libraries and code
+        # This can be platform-specific and needs to be implemented
         pass
 
-    if screenshot_options["entire_screen"]:
-        # Capture entire screen
+    # Second option: Capture entire screen using ImageGrab
+    elif screenshot_options["entire_screen"]:
         screenshot = ImageGrab.grab()
-    
+
         # Get the mouse cursor's current position
         cursor_position = pyautogui.position()
 
         # Use the global last_key variable instead of reading the event here
-        with lock:  # Ensure thread-safe access to last_key
+        with lock:
             current_last_key = last_key
 
         # Draw a representation of the cursor on the screenshot
         draw = ImageDraw.Draw(screenshot)
-
-        
-        # Draw the enhanced cursor
         draw_cursor(draw, cursor_position, cursor_size)
 
-        #draw.rectangle([cursor_position.x, cursor_position.y, cursor_position.x + cursor_size, cursor_position.y + cursor_size], outline="red")
+        # Add grid, tiles, and text like before
+        add_grids_and_labels(screenshot, cursor_position, current_last_key)
 
-        current_time = datetime.datetime.now()
-        image_timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S')
-        timestamp = int(time.time())
-        # You can also draw the cursor position and last key pressed on the screenshot for visibility
-        text_position = (40, 55)  # Position of the text
-        # Add the grid with labeled coordinates
-        #add_grid_to_screenshot(screenshot, grid_interval=150)  # Set grid_interval as needed
-        # Draw the grid with labeled coordinates
-        text_info = f"Cursor Position: {cursor_position} | Last Key: {current_last_key} | Timestamp: {image_timestamp}"
+    # Save the screenshot, regardless of which option was used
+    current_time = datetime.datetime.now()
+    image_timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S')
+    timestamp = int(time.time())
+    screenshot_file_path = f"{logging_folder}/{timestamp}.png"
+    screenshot.save(screenshot_file_path)
+    print(f"Screenshot saved at {screenshot_file_path}")
 
-        # Add the colored tile grid with directional labels
-        add_colored_tile_grid_v3(screenshot, center_tile=(719, 444), tile_size=(162, 98),
-                                 colors_x=['blue', 'red', 'orange', 'yellow', 'purple', 'black'],
-                                 colors_y=['blue', 'red', 'orange', 'yellow', 'purple', 'black'])
-
-        # Add the red dot grid with labels
-     #   add_dot_grid_with_labels1111(screenshot, grid_interval=150, key_points=[
-     #       (150, 150), (450, 150), (150, 450), (450, 450),
-     #       (900, 150), (1200, 150), (900, 450), (1200, 450),
-     #       (600, 750), (1050, 750), (1350, 300), (1350, 600),
-     #       (1350, 750), (750, 300)
-     #   ])
-
-        # Add the red dot grid with labels
-        add_dot_grid_with_labels(screenshot, grid_interval=150, key_points=[
-            (150, 150), (300, 750), (450, 150), 
-            (900, 150), (1200, 150),
-            (1050, 750), (1350, 300), (1350, 600),
-            (1350, 750)
-        ])
-
-        # Customize the font size
-        font_size = 23
-
-        # Load a TrueType font with the specified size
-        try:
-            font = ImageFont.truetype(FONT_PATH, font_size)
-        except IOError:
-            print("Font file not found. Falling back to default font.")
-            font = ImageFont.load_default()  # Fallback to default font if TrueType font not found
-
-        # Draw text with background
-        draw_text_with_background(draw, text_position, text_info, font, background_opacity=128, shift_x=5, shift_y=20)
-        #draw.text(text_position, f"Cursor Pos: {cursor_position} | Last Key: {current_last_key} | Timestamp: {image_timestamp} ", fill="white")
-
-        screenshot_file_path = f"{logging_folder}/{timestamp}.png"
-        screenshot.save(screenshot_file_path)
-        print(f"Screenshot Timestamp: {image_timestamp}")
-        # Now, we send the prompt and include the screenshot file path
-        #send_prompt_to_chatgpt("Here's a screenshot of my entire screen. Lets play Pokemon Blue in the VBA emulator. :3 We will play with individual button presses. Please simply reply to screenshots with only a command. VKPAG:click for example. If you need help, or have questions then ask away, but always be concise. with one or a short series set of individual button presses in response to each image. images will only update after a response is obtain from here. Display is 1920 X 1080 Landscape. ie click on folder/app called at mouse position x, y via move,x,y; leftclick; x,y select open keys in VBA emulator are Up: Up Arrow Please pretend like there is a parser listening for key commands and mouse commands the format from handle_commands of VKPAG:(PYAUTOGUI KEYBOARD/mouse commands, arguments);  VKPAG:hold_shift,1.5;move(100,200); rightClick(100,200); click(100,200)", screenshot_file_path)
-        
-        ##send_prompt_to_chatgpt("please respond with usually pyag: commands #notes structure ie at title screen or certain menues selections try  please use pyag:  ie pyag: press(a) #at title screen/to scroll dialog text boxes, please do not use press(a) with multiple commands in a single inference but multiple move commands ie pyag hold(u,0.5); pyag: hold(r, 1) is fine; or pyag: hold (moveKey,1) #one is duration; move keys are u for moving up, d for moving down, l for moving left, r for moving right; pyag: hold(r,1) to move right, or pyag: hold(l,1) to move left, or pyag: hold(u,1) to move up, or pyag hold(d,1) to move down; press a at title screen/to scroll dialog text boxes, or pyag: press (r) to face right, or pyag: press (l) to face left, or pyag: press (u) to face up, or pyag press (d) to face down,  #Notes: quotes aren't necessary around the key command and the keyboard a key happens to be the Gameboy a button and click won't do much except inside vba window focus on window '", role="user", image_path= screenshot_file_path, image_timestamp=image_timestamp)  #image_timestamp might be buggy
-        
-        #auto_prompt_response = send_prompt_to_chatgpt("meow ")
-        #send_prompt_to_chatgpt(auto_prompt_response)
-       # send_prompt_to_chatgpt("auto prompt:", screenshot_file_path)
- # Include the queued user input when sending the screenshot
-        if queued_user_input:
-            prompt = f"user input: {queued_user_input}"  # Use your desired format for combining input and screenshot
-            send_prompt_to_chatgpt(prompt, role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
-            queued_user_input = None  # Clear the queued input after sending
-        else:
-            send_prompt_to_chatgpt("System: Screenshot taken. Please provide instructions for parser to execute actions and comment notes thoroughly for future self or to communicate to user or user input.", role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
-
-# Use the function and provide a path to save the screenshot
-#capture_screenshot_with_cursor_info('screenshot_info.png')
-
+    # Handle user input and send the screenshot
+    handle_queued_input(screenshot_file_path, image_timestamp)
 # Function to run the scheduled tasks
 def run_scheduled_tasks():
     while running:
