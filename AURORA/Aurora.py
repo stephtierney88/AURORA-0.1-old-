@@ -1803,6 +1803,12 @@ def handle_commands(command_input, is_user=True, exemption=None, is_assistant=Fa
             cmd_name = command
             args = []
 
+            # Check if it's a known command
+        if not is_known_command(cmd_name):
+            # If it's not a known command, simply log it or pass without displaying an error
+            #print(f"Received non-command response: '{command_input}'")  # Debug log (optional)
+            continue    
+
         # Handle pyautogui commands separately
         if cmd_name.startswith('pyag:'):
             pyag_command = cmd_name[5:]
@@ -2761,9 +2767,11 @@ def draw_cursor(draw, cursor_position, cursor_size, native_cursor=False, font=No
     if not native_cursor:
         # Draw the custom cursor
         draw_custom_cursor(draw, cursor_position, cursor_size)
-    
+    if native_cursor:
+        x=cursor_position[0]
+        y=cursor_position[1]
     # Always draw the cursor coordinates label
-    draw_cursor_label(draw, cursor_position, font)
+    draw_cursor_label(draw, pyautogui.position(), font)
 
 # Helper function to draw text with background
 def draw_text_with_background(draw, position, text, font, text_color="white", background_color=(0, 0, 0), background_opacity=128, shift_x=5, shift_y=20):
@@ -2896,6 +2904,7 @@ def take_screenshot():
     # Initialize variables to None
     cursor_image = None
     cursor_position = None
+    screenshot = None  # Initialize screenshot to None
 
     # Check if the third option for pyautogui native screenshot is enabled
     if screenshot_options.get("native_cursor_screenshot"):
@@ -2933,13 +2942,13 @@ def take_screenshot():
 
         # Draw additional elements if needed
         draw = ImageDraw.Draw(screenshot)
-        #draw_cursor(draw, cursor_position, cursor_size)  # Optional custom cursor drawing
+        draw_cursor(draw, cursor_position, cursor_size, True)  # Optional custom cursor drawing
 
         # Add grid, tiles, and text like before
         add_grids_and_labels(screenshot, cursor_position, current_last_key)
         
         # Draw cursor label only
-        draw = ImageDraw.Draw(screenshot)
+        #draw = ImageDraw.Draw(screenshot)
         try:
             font = ImageFont.truetype(FONT_PATH, 23)
         except IOError:
@@ -2949,15 +2958,18 @@ def take_screenshot():
     elif screenshot_options["current_window"]:
         # Code to capture the current window snapshot
         # This can be platform-specific and needs to be implemented
+        # You need to implement this option correctly or remove it if not used.
+        # For now, let's set it to the full-screen screenshot as a placeholder:
+        screenshot = ImageGrab.grab()  # Temporary fallback
         pass
 
     # Second option: Capture entire screen using ImageGrab
     elif screenshot_options["entire_screen"]:
         screenshot = ImageGrab.grab()
         print(f"Screenshot mode: {screenshot.mode}")
-        print(f"Cursor image mode: {cursor_image.mode if cursor_image else 'None'}")
-        if cursor_image.mode != screenshot.mode:
-            cursor_image = cursor_image.convert(screenshot.mode)
+        #print(f"Cursor image mode: {cursor_image.mode if cursor_image else 'None'}")
+        #if cursor_image.mode != screenshot.mode:
+        #    cursor_image = cursor_image.convert(screenshot.mode)
         # Get the mouse cursor's current position
         cursor_position = pyautogui.position()
 
@@ -3082,8 +3094,8 @@ running = True
 
 # Set up screenshot options
 screenshot_options = {
-    "current_window": True,
-    "entire_screen": True,
+    "current_window": False,
+    "entire_screen": False,
     "native_cursor_screenshot": True  # Set to True by default for native cursor screenshots
 }
 
