@@ -33,11 +33,30 @@ import json
 import io
 import math
 import queue
+import re
+import ctypes
+from ctypes import wintypes
+from PIL import Image, ImageDraw, ImageFont
+import threading  # Ensure lock is available
 
 API_KEY=                                                                                                                                                                                                                                                                                                                "sk-proj-SECRETKEY"
 POWER_WORD = ""
 REQUIRE_POWER_WORD = False
 chat_history = []
+tasks_list = []
+apriority_tasks = []
+notable_inventory = []
+party_status = []
+recent_context_events = []
+pinned_immediate_actions = []
+pinned_short_term_actions = []
+recent_executed_actions = []
+significant_past_tasks = []
+inference_counter = 0
+model_interval = 9999  # Switch to 'o1-preview' every 3 inferences
+hierarchical_tasks = []  # Global variable to store the hierarchical tasks
+
+
 CONTEXT_LENGTH = 25192  # or whatever the max token count for GPT-4 is
 disable_commands = False  # Global boolean variable to track whether command processing is currently disabled
 show_user_text = True
@@ -62,6 +81,14 @@ global CHECK_UMSGS_DECAY
 global CHECK_IMSGS_DECAY
 global userName
 global aiName
+# Global variable to enable or disable model responses
+ENABLE_MODEL_RESPONSES = True  # Set to False to disable model responses
+INIT_MODE = 'test'  # Options: 'load', 'skip', 'test'
+#load will load from init.txt file, test will use the test init prompt, skip will void the pinned init message.
+# Define a default or test init prompt
+test_init_prompt = "This is a test init prompt."
+
+init_prompt = ""  # Initialize to an empty string
 
 # Load a TrueType font with the specified size
 
@@ -133,6 +160,11 @@ last_key_lock = RLock()
 image_history_lock = RLock()
 #queued_input_lock = RLock() #RLock? 
 
+
+enable_colored_tile_grid = False  # Set to True if you want to enable it
+enable_unit_labels = False        # Set to True if you want to enable TU/RU/LU/DU labels
+
+
 # Parameters
 threshold = 16.11  
 pause_duration =  1.33  #1.8  
@@ -165,6 +197,10 @@ def audio_callback(indata, frames, time_info, status):
 
     if volume_norm < threshold:
         if len(audio_buffer) > sampling_rate * pause_duration:  
+            if not ENABLE_MODEL_RESPONSES:
+                print("Model responses are disabled. Skipping Whisper API call.")
+                audio_buffer.clear()
+                return
             with tempfile.NamedTemporaryFile(delete=False, suffix=".wav", dir=script_directory) as temp_file:
                 audio_data = np.array(audio_buffer, dtype=np.float32)
                 audio_segment = AudioSegment(
@@ -209,6 +245,291 @@ def threshold_check(current_token_count, total_tokens, threshold_percentage):
     return current_token_count > threshold
 
 
+# Define missing handle types
+HCURSOR = ctypes.c_void_p
+HICON = ctypes.c_void_p
+HBITMAP = ctypes.c_void_p
+HDC = ctypes.c_void_p
+HGDIOBJ = ctypes.c_void_p
+
+# Define necessary Windows structures
+class CURSORINFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("flags", wintypes.DWORD),
+        ("hCursor", HCURSOR),
+        ("ptScreenPos", wintypes.POINT),
+    ]
+
+class ICONINFO(ctypes.Structure):
+    _fields_ = [
+        ("fIcon", wintypes.BOOL),
+        ("xHotspot", wintypes.DWORD),
+        ("yHotspot", wintypes.DWORD),
+        ("hbmMask", HBITMAP),
+        ("hbmColor", HBITMAP),
+    ]
+
+class BITMAP(ctypes.Structure):
+    _fields_ = [
+        ("bmType", wintypes.LONG),
+        ("bmWidth", wintypes.LONG),
+        ("bmHeight", wintypes.LONG),
+        ("bmWidthBytes", wintypes.LONG),
+        ("bmPlanes", wintypes.WORD),
+        ("bmBitsPixel", wintypes.WORD),
+        ("bmBits", ctypes.c_void_p),
+    ]
+
+class BITMAPINFOHEADER(ctypes.Structure):
+    _fields_ = [
+        ("biSize", wintypes.DWORD),
+        ("biWidth", wintypes.LONG),
+        ("biHeight", wintypes.LONG),
+        ("biPlanes", wintypes.WORD),
+        ("biBitCount", wintypes.WORD),
+        ("biCompression", wintypes.DWORD),
+        ("biSizeImage", wintypes.DWORD),
+        ("biXPelsPerMeter", wintypes.LONG),
+        ("biYPelsPerMeter", wintypes.LONG),
+        ("biClrUsed", wintypes.DWORD),
+        ("biClrImportant", wintypes.DWORD),
+    ]
+
+class RGBQUAD(ctypes.Structure):
+    _fields_ = [
+        ("rgbBlue", wintypes.BYTE),
+        ("rgbGreen", wintypes.BYTE),
+        ("rgbRed", wintypes.BYTE),
+        ("rgbReserved", wintypes.BYTE),
+    ]
+
+class BITMAPINFO(ctypes.Structure):
+    _fields_ = [
+        ("bmiHeader", BITMAPINFOHEADER),
+        ("bmiColors", RGBQUAD * 1),  # Adjust the array size if needed
+    ]
+
+
+
+# Constants
+BI_RGB = 0
+DIB_RGB_COLORS = 0
+
+# Define the argument types and return types for the Windows API functions
+
+# For GetObjectW
+ctypes.windll.gdi32.GetObjectW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
+ctypes.windll.gdi32.GetObjectW.restype = ctypes.c_int
+
+# For SelectObject
+ctypes.windll.gdi32.SelectObject.argtypes = [HDC, HGDIOBJ]
+ctypes.windll.gdi32.SelectObject.restype = HGDIOBJ
+
+# For DeleteObject
+ctypes.windll.gdi32.DeleteObject.argtypes = [HGDIOBJ]
+ctypes.windll.gdi32.DeleteObject.restype = wintypes.BOOL
+
+# For GetDC
+ctypes.windll.user32.GetDC.argtypes = [wintypes.HWND]
+ctypes.windll.user32.GetDC.restype = HDC
+
+# For ReleaseDC
+ctypes.windll.user32.ReleaseDC.argtypes = [wintypes.HWND, HDC]
+ctypes.windll.user32.ReleaseDC.restype = wintypes.INT
+
+# For CreateCompatibleDC
+ctypes.windll.gdi32.CreateCompatibleDC.argtypes = [HDC]
+ctypes.windll.gdi32.CreateCompatibleDC.restype = HDC
+
+# For DeleteDC
+ctypes.windll.gdi32.DeleteDC.argtypes = [HDC]
+ctypes.windll.gdi32.DeleteDC.restype = wintypes.BOOL
+
+# For GetDIBits
+ctypes.windll.gdi32.GetDIBits.argtypes = [
+    HDC,             # hdc
+    HBITMAP,         # hbm
+    wintypes.UINT,   # start
+    wintypes.UINT,   # cLines
+    ctypes.c_void_p, # lpvBits
+    ctypes.POINTER(BITMAPINFO),  # lpbi
+    wintypes.UINT    # usage
+]
+ctypes.windll.gdi32.GetDIBits.restype = wintypes.INT
+
+
+
+# Initialize the lock for thread safety
+lock = threading.RLock()  #Rlock or lock here?
+
+def get_cursor():
+    # Initialize CURSORINFO
+    cursor_info = CURSORINFO()
+    cursor_info.cbSize = ctypes.sizeof(CURSORINFO)
+    if not ctypes.windll.user32.GetCursorInfo(ctypes.byref(cursor_info)):
+        return None, None, None
+
+    hicon = cursor_info.hCursor
+    if not hicon:
+        return None, None, None
+
+    # Get ICONINFO
+    icon_info = ICONINFO()
+    if not ctypes.windll.user32.GetIconInfo(hicon, ctypes.byref(icon_info)):
+        return None, None, None
+
+    # Get cursor position
+    x, y = cursor_info.ptScreenPos.x, cursor_info.ptScreenPos.y
+
+    # Get cursor hotspot
+    hotspot = (icon_info.xHotspot, icon_info.yHotspot)
+
+    # Convert HBITMAP to PIL Image
+    if icon_info.hbmColor:
+        cursor_image = hbitmap_to_pil_image(icon_info.hbmColor)
+    else:
+        cursor_image = hbitmap_to_pil_image(icon_info.hbmMask)
+        if cursor_image is not None:
+            # Convert mask image to RGBA
+            cursor_image = cursor_image.convert('RGBA')
+            # Apply a default color, e.g., black
+            cursor_image_data = cursor_image.getdata()
+            new_data = []
+            for item in cursor_image_data:
+                if item == 0:
+                    new_data.append((0, 0, 0, 0))  # Transparent
+                else:
+                    new_data.append((0, 0, 0, 255))  # Black
+            cursor_image.putdata(new_data)
+
+    if cursor_image is None:
+        return None, None, None
+
+    # Clean up GDI objects
+    ctypes.windll.gdi32.DeleteObject(icon_info.hbmColor)
+    ctypes.windll.gdi32.DeleteObject(icon_info.hbmMask)
+
+    return cursor_image, hotspot, (x, y)
+
+def hbitmap_to_pil_image(hbitmap):
+    if not hbitmap:
+        return None
+
+    # Get bitmap information
+    bmp = BITMAP()
+    res = ctypes.windll.gdi32.GetObjectW(hbitmap, ctypes.sizeof(BITMAP), ctypes.byref(bmp))
+    if res == 0:
+        print("GetObjectW failed.")
+        return None
+
+    # Print bitmap information
+    print(f"Bitmap Type: {bmp.bmType}")
+    print(f"Bitmap Width: {bmp.bmWidth}")
+    print(f"Bitmap Height: {bmp.bmHeight}")
+    print(f"Bitmap WidthBytes: {bmp.bmWidthBytes}")
+    print(f"Bitmap Planes: {bmp.bmPlanes}")
+    print(f"Bitmap BitsPixel: {bmp.bmBitsPixel}")
+
+    # Calculate bytes per pixel
+    bytes_per_pixel = max(bmp.bmBitsPixel // 8, 1)  # Ensure at least 1 byte per pixel
+
+    # Prepare buffer
+    buf_size = bmp.bmWidthBytes * bmp.bmHeight
+    buffer = (ctypes.c_byte * buf_size)()
+
+    # Create compatible DC
+    hdc = ctypes.windll.user32.GetDC(None)
+    mem_dc = ctypes.windll.gdi32.CreateCompatibleDC(hdc)
+    if not mem_dc:
+        print("CreateCompatibleDC failed.")
+        ctypes.windll.user32.ReleaseDC(None, hdc)
+        return None
+
+    # Select bitmap into DC
+    old_bitmap = ctypes.windll.gdi32.SelectObject(mem_dc, hbitmap)
+    if not old_bitmap:
+        print("SelectObject failed.")
+        ctypes.windll.gdi32.DeleteDC(mem_dc)
+        ctypes.windll.user32.ReleaseDC(None, hdc)
+        return None
+
+    # Set up bitmap info
+    bmi = BITMAPINFO()
+    bmi.bmiHeader.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+    bmi.bmiHeader.biWidth = bmp.bmWidth
+    bmi.bmiHeader.biHeight = bmp.bmHeight  # Positive for bottom-up DIB
+    bmi.bmiHeader.biPlanes = bmp.bmPlanes
+    bmi.bmiHeader.biBitCount = bmp.bmBitsPixel
+    bmi.bmiHeader.biCompression = BI_RGB
+    bmi.bmiHeader.biSizeImage = buf_size
+
+    # Retrieve the bitmap bits
+    res = ctypes.windll.gdi32.GetDIBits(
+        mem_dc,
+        hbitmap,
+        0,
+        bmp.bmHeight,
+        buffer,
+        bmi,
+        DIB_RGB_COLORS
+    )
+
+    if res == 0:
+        print("GetDIBits failed.")
+        ctypes.windll.gdi32.SelectObject(mem_dc, old_bitmap)
+        ctypes.windll.gdi32.DeleteDC(mem_dc)
+        ctypes.windll.user32.ReleaseDC(None, hdc)
+        return None
+
+    # Determine the image mode and raw mode
+    if bmp.bmBitsPixel == 32:
+        mode = 'RGBA'
+        raw_mode = 'BGRA'
+    elif bmp.bmBitsPixel == 24:
+        mode = 'RGB'
+        raw_mode = 'BGR'
+    elif bmp.bmBitsPixel == 16:
+        mode = 'RGB'
+        raw_mode = 'BGR;16'
+    elif bmp.bmBitsPixel == 8:
+        mode = 'L'
+        raw_mode = 'L'
+    elif bmp.bmBitsPixel == 4:
+        mode = 'P'
+        raw_mode = 'P'
+    elif bmp.bmBitsPixel == 1:
+        mode = '1'
+        raw_mode = '1'
+    else:
+        print(f"Unsupported bit depth: {bmp.bmBitsPixel}")
+        ctypes.windll.gdi32.SelectObject(mem_dc, old_bitmap)
+        ctypes.windll.gdi32.DeleteDC(mem_dc)
+        ctypes.windll.user32.ReleaseDC(None, hdc)
+        return None
+
+    print(f"Using mode: {mode}, raw mode: {raw_mode}")
+
+    # Create PIL Image from buffer
+    image = Image.frombuffer(
+        mode,
+        (bmp.bmWidth, bmp.bmHeight),
+        buffer,
+        'raw',
+        raw_mode,
+        bmp.bmWidthBytes,
+        1
+    )
+
+    # Flip the image vertically if needed
+    image = image.transpose(Image.FLIP_TOP_BOTTOM)
+
+    # Clean up
+    ctypes.windll.gdi32.SelectObject(mem_dc, old_bitmap)
+    ctypes.windll.gdi32.DeleteDC(mem_dc)
+    ctypes.windll.user32.ReleaseDC(None, hdc)
+
+    return image
 
 
 
@@ -234,7 +555,10 @@ is_known_command_prefixes = [
     'SAVE ALL PINS', 'save all pins', 'HELP_VISIBILITY', 'help_visibility', 'HELP', 'help', 'hide', 'HIDE', 'toggle', 'TOGGLE',
     'TOGGLE_SKIP_COMMANDS', 'toggle_skip_commands', 'DISPLAYHISTORY', 'displayhistory', 'DHISTORY', 'dhistory', 'SAVECH', 'savech', 'VKPAG:', 'vkpag:', 'pyag:', 'PYAG:',
     'shutdown instance', 'SHUTDOWN INSTANCE', 'terminate instance', 'TERMINATE INSTANCE', 'CLEAR ALL MESSAGES', 'clear all messages',
-    'CLEAR INIT', 'clear init', 'CLEAR PIN', 'clear pin', 'CLEAR HANDOFF', 'clear handoff', 'TOGGLE AUTO PROMPT', 'toggle auto prompt'
+    'CLEAR INIT', 'clear init', 'CLEAR PIN', 'clear pin', 'CLEAR HANDOFF', 'clear handoff', 'TOGGLE AUTO PROMPT', 'toggle auto prompt',     'ADD_GOAL', 'UPDATE_GOAL', 'REMOVE_GOAL',
+    'ADD_APRIORITY_GOAL', 'UPDATE_INVENTORY', 'UPDATE_PARTY', 'UPDATE_CONTEXT',
+    'UPDATE_GOAL_STATUS', 'COMPLETE_GOAL', 'tasks', 'HELP', '/HELP', '/?', '~help', '/help', '-h', '--help',
+    'pyag:', 'CMD', 'terminate_instance', 'SAVE_TASKS', 'LOAD_TASKS'
 # ... add any other command identifiers you need
     # Note: Make sure all prefixes are unique and not a subset of another prefix,
     # otherwise, it may cause issues in recognizing commands accurately.
@@ -287,6 +611,8 @@ def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp
     global image_or_other_count
     global image_detail
     global Recent_images_High
+    global inference_counter
+    inference_counter += 1
 
     current_time = datetime.datetime.now()
     timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S')
@@ -298,6 +624,19 @@ def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp
             "Authorization": f"Bearer {API_KEY}"
         }
     
+    if not ENABLE_MODEL_RESPONSES:
+        print("Model responses are disabled. Skipping GPT/O1 API call.")
+        return None
+
+    # Determine which model to use
+    if inference_counter % model_interval == 0:
+        model_name = 'o1-preview'
+        # Add tasksning instructions
+        tasksning_prompt = "tasks: Please review and update your goals, inventory, and suggest next actions with reasoning."
+        prompt = tasksning_prompt + "\n" + prompt
+    else:
+        model_name = 'gpt-4o-mini'
+
        # if not is_important_message(prompt) and not init_handoff_in_progress:
         #    update_chat_history("user", prompt)
 
@@ -396,41 +735,11 @@ def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp
             #print("image path msg: ")
             print(image_detail + " detail in image path message append")
             #print(messages)
-           # messages.append({
-           #     "role": "user",
-           #     "content": [
-           #         {"type": "text", "text": "What’s in this image please be short and concise? What images & text are in this conversation so far?"},
-           #         {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}, "detail": latest_image_detail}
-           #     ]
-           # })
 
-            #messages.append({
-            #    "role": "user",
-            #    "content": {
-            #        {"type": "text", "text": "What’s in this image please be short and concise? What images & text are in this conversation so far?"},  # Use your specific prompt if needed
-            #        #{"type": "image_url", "image_url": f"data:image/png;base64,{base64_image}",
-            #        #{"type": "image_url", "image_url":  f"data:image/png;base64,{base64_image}",
-            #     #"detail": latest_image_detail}
-            #
-            #}})
-            #messages.append({
-            #    "role": "user",
-            #    "content": {
-            #        "type": "text",
-            #        "text": "What’s in this image please be short and concise? What images & text are in this conversation so far?"
-            #    }
-            #})
-            #messages.append({
-            #    "role": "user",
-            #    # Content should be an object, not a list
-            #    "content": {"type": "image_url", "image_url": f"data:image/png;base64,{base64_image}", "detail": latest_image_detail}  # Changed: made image_url a key-value pair directly
-            #})
             print(f" In Image Path, Prompt: ", prompt)
             print(f"In send_prompt_to_chatgpt, Before user update_chat_history, Image Timestamp: {image_timestamp}")
             # Reset the image detail level for older images
 
-            # Add the image data to chat history using update_chat_history
-            #update_chat_history("user", prompt, image_path=image_path, image_timestamp=image_timestamp, sticky=sticky)
            # image_detail = "low"
                     # Update chat history for the image if exemption is not "queued"
             if exemption != "queued":
@@ -449,7 +758,7 @@ def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp
 
         # Construct the payload
         payload = {
-            "model": "gpt-4o-mini",            
+            "model": model_name,            
             #"model": "gpt-4o",
             #"model": "gpt-4-vision-preview",
             #"model": "gpt-3.5-turbo-1106",
@@ -475,25 +784,14 @@ def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp
             #print(chat_history)
             print("NYAN")
 
-
-                # Here you check if the AI's response is a command and handle it
-            if is_command(ai_response):
-                handle_commands(ai_response, is_user=False)
-            else:
-                if not is_important_message(prompt, entry.get("Exemption")):
-                    #update_chat_history("assistant", ai_response)
-
-                     # Token counting and threshold checking
-                     token_count = count_tokens_in_history(chat_history)
-                     current_token_count = int(token_count.split()[0])
-                     token_counter = current_token_count
-                     print(f"Current token count in chat history: {token_count}")
-                     if threshold_check(current_token_count, CONTEXT_LENGTH, 75):
-                         warning_message = "Warning: Approaching token limit and context length"
-                         display_message("system", warning_message)
-                         #chat_history.append({"role": "system", "content": warning_message})
- 
+            process_assistant_response(ai_response)
             return ai_response
+                # Here you check if the AI's response is a command and handle it
+           # if is_command(ai_response):
+           #     handle_commands(ai_response, is_user=False)
+            #else:
+                #if not is_important_message(prompt, entry.get("Exemption")): threshold_check
+
         else:
             # Handle errors
             print(f"Error: {response.status_code}")
@@ -532,12 +830,7 @@ def update_chat_history(role, content, token_count=None, image_path=None, exempt
     #modified_content = content
     # Check if the message is a special type like PINNED, Init, or Special
     #if exemption in ['Pinned', 'Init', 'Handoff', 'Special']:
-    #    # Format the message to include the timestamp
-    #    content_with_timestamp = f"Timestamp: {timestamp}] {content}"
-    #else:
-    #    content_with_timestamp = content
 
-    # Update mouse position from pyautogui with error handling
     # Acquire lock before accessing mouse_position
     with mouse_position_lock:
         try:
@@ -648,7 +941,291 @@ def update_chat_history(role, content, token_count=None, image_path=None, exempt
 
     print(f"At end of update_chat_history, Image Timestamp: {image_timestamp}")
 
+def construct_hierarchical_tasks_text():
+    tasks_text = "**Hierarchical tasks with Immediate Actions:**\n\n"
+    for level_num, level in enumerate(hierarchical_tasks, start=1):
+        tasks_text += f"- **Level {level_num}**\n\n"
+        for idx, item in enumerate(level, start=1):
+            if 'command' in item:
+                tasks_text += f"  - **Action {idx}**: `{item['command']}`\n"
+                tasks_text += f"    - **Priority**: {item.get('priority', 'No Priority')}\n"
+                tasks_text += f"    - **Significance**: {item.get('significance', 'No Significance')}\n"
+                tasks_text += f"    - **Associated Goal**: {item.get('associated_goal', 'No Goal')}\n"
+                tasks_text += f"    - **Reasoning**: {item.get('reasoning', '')}\n"
+                if 'notes' in item:
+                    tasks_text += f"    - **Notes**: {item['notes']}\n"
+            else:
+                # Handle placeholders or general suggestions
+                tasks_text += f"  - **Action {idx}**: {item.get('description', 'TBD')}\n"
+                if 'notes' in item:
+                    tasks_text += f"    - **Notes**: {item['notes']}\n"
+        tasks_text += "\n"
+    return tasks_text
 
+def add_goal_command(args):
+    goal_text = args[0].strip()
+    priority = args[1].strip() if len(args) > 1 else 'No Priority'
+    significance = args[2].strip() if len(args) > 2 else 'No Significance'
+    add_goal(goal_text, priority, significance)
+    display_message('system', f"Added goal: {goal_text} with priority: {priority} and significance: {significance}")
+    print(f"Executing command: ADD_GOAL ")
+
+# Function to process assistant's response
+def process_assistant_response(response_text):
+    # Split the response into sections
+    # Implement parsing logic based on the assistant's response format
+    # For simplicity, let's assume the assistant's response includes executed commands and the hierarchical tasks
+    executed_commands, tasks_section = split_response_sections(response_text)
+
+    # Handle executed commands
+    handle_commands(executed_commands, is_user=False)
+
+    # Update hierarchical tasks
+    parse_hierarchical_tasks(tasks_section)
+
+    # Execute immediate actions from the updated tasks
+    if hierarchical_tasks and hierarchical_tasks[0]:  # Check if Level 1 actions exist
+        immediate_actions = hierarchical_tasks[0]  # Level 1 actions
+        execute_immediate_actions(immediate_actions)
+
+    # Update pinned information
+    update_pinned_information()
+
+
+# Function to split the assistant's response into sections
+def split_response_sections(response_text):
+    # Implement logic to split the response into executed commands and tasks
+    # This is a placeholder implementation
+    # Adjust this function based on the assistant's response format
+    executed_commands = ''
+    tasks_section = ''
+    lines = response_text.strip().split('\n')
+    in_tasks_section = False
+    for line in lines:
+        if line.strip().startswith('**Hierarchical tasks'):
+            in_tasks_section = True
+            tasks_section += line + '\n'
+        elif in_tasks_section:
+            tasks_section += line + '\n'
+        else:
+            executed_commands += line + '\n'
+    return executed_commands.strip(), tasks_section.strip()
+
+def execute_immediate_actions(actions):
+    global recent_executed_actions
+    for action in actions:
+        command = action.get('command')
+        if command and not command.startswith('TBD'):
+            handle_commands(command, is_user=False)
+            # Update recent executed actions
+            timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            recent_executed_actions.append({
+                'timestamp': timestamp,
+                'action': command,
+                'associated_goal': action.get('associated_goal', 'No specific goal')
+            })
+            # Keep only the last 7 executed actions
+            recent_executed_actions = recent_executed_actions[-7:]
+        else:
+            # Handle placeholders or general suggestions
+            continue  # Placeholders are not executed but inform future tasksning
+
+# Define the Goal class
+class Goal:
+    def __init__(self, text, priority='No Priority', significance='No Significance', status='Incomplete', sub_goals=None):
+        self.id = len(tasks_list) + 1
+        self.text = text
+        self.priority = priority  # e.g., 'High', 'Medium', 'Low'
+        self.significance = significance  # e.g., 'Critical', 'Significant', 'Minor'
+        self.status = status  # 'Incomplete' or 'Complete'
+        self.sub_goals = sub_goals if sub_goals else []  # List of sub-goal objects
+
+
+# Function to parse the hierarchical tasks
+def parse_hierarchical_tasks(tasks_text):
+    # Implement parsing logic to extract the hierarchical tasks
+    # For simplicity, let's assume we store it in a global variable
+    global hierarchical_tasks
+    hierarchical_tasks = []
+    # Parse the tasks_text and populate hierarchical_tasks
+    # Placeholder implementation
+    
+    level_pattern = re.compile(r'- \*\*Level (\d+)\*\*')
+    action_pattern = re.compile(r'- \*\*Action (\d+)\*\*: `(.+?)`')
+    priority_pattern = re.compile(r'- \*\*Priority\*\*: (.+)')
+    significance_pattern = re.compile(r'- \*\*Significance\*\*: (.+)')
+    associated_goal_pattern = re.compile(r'- \*\*Associated Goal\*\*: (.+)')
+    reasoning_pattern = re.compile(r'- \*\*Reasoning\*\*: (.+)')
+    notes_pattern = re.compile(r'- \*\*Notes\*\*: (.+)')
+
+    current_level = None
+    current_action = None
+
+    lines = tasks_text.strip().split('\n')
+    for line in lines:
+        level_match = level_pattern.match(line)
+        if level_match:
+            current_level = int(level_match.group(1))
+            while len(hierarchical_tasks) < current_level:
+                hierarchical_tasks.append([])
+            continue
+
+        action_match = action_pattern.match(line)
+        if action_match and current_level is not None:
+            action_number = int(action_match.group(1))
+            command = action_match.group(2)
+            current_action = {
+                'command': command,
+                'priority': 'No Priority',
+                'significance': 'No Significance',
+                'associated_goal': 'No Goal',
+                'reasoning': '',
+                'notes': ''
+            }
+            hierarchical_tasks[current_level - 1].append(current_action)
+            continue
+
+        if current_action is not None:
+            if priority_match := priority_pattern.match(line):
+                current_action['priority'] = priority_match.group(1)
+            elif significance_match := significance_pattern.match(line):
+                current_action['significance'] = significance_match.group(1)
+            elif associated_goal_match := associated_goal_pattern.match(line):
+                current_action['associated_goal'] = associated_goal_match.group(1)
+            elif reasoning_match := reasoning_pattern.match(line):
+                current_action['reasoning'] = reasoning_match.group(1)
+            elif notes_match := notes_pattern.match(line):
+                current_action['notes'] = notes_match.group(1)
+
+        else:
+            # Handle placeholders or general suggestions
+            if current_level is not None:
+                description_match = re.match(r'- \*\*Action (\d+)\*\*: (.+)', line)
+                if description_match:
+                    action_number = int(description_match.group(1))
+                    description = description_match.group(2)
+                    current_action = {
+                        'description': description,
+                        'notes': ''
+                    }
+                    hierarchical_tasks[current_level - 1].append(current_action)
+                    continue
+                elif notes_match := notes_pattern.match(line):
+                    current_action['notes'] = notes_match.group(1)                
+
+ # Function to update the pinned information
+
+def update_pinned_information():
+    # Remove existing pinned information
+    chat_history[:] = [entry for entry in chat_history if entry.get('Exemption') != 'PinnedInfo']
+
+    # Construct the pinned information text
+    pinned_text = "=== Pinned Information ===\n\n"
+
+    # Add hierarchical tasks
+    pinned_text += construct_hierarchical_tasks_text()
+
+    # Add notable inventory
+    if notable_inventory:
+        pinned_text += "**Notable Inventory:**\n- " + "\n- ".join(notable_inventory) + "\n\n"
+
+    # Add party status
+    if party_status:
+        pinned_text += "**Current Party Status:**\n- " + "\n- ".join(party_status) + "\n\n"
+
+    # Add recent context and events
+    if recent_context_events:
+        pinned_text += "**Recent Context and Events:**\n- " + "\n- ".join(recent_context_events) + "\n\n"
+
+    # Add recent executed actions
+    if recent_executed_actions:
+        pinned_text += "**Recent Executed Actions:**\n"
+        for entry in recent_executed_actions:
+            pinned_text += f"- [{entry['timestamp']}] {entry['action']} (Goal: {entry['associated_goal']})\n"
+        pinned_text += "\n"
+
+    # Add significant goals achieved
+    if significant_past_tasks:
+        pinned_text += "**Significant Goals Achieved:**\n"
+        for entry in significant_past_tasks:
+            pinned_text += f"- [{entry['timestamp']}] {entry['goal']}\n"
+        pinned_text += "\n"
+
+    # Create the pinned message entry
+    pinned_message_content = {'type': 'text', 'text': pinned_text}
+    chat_history.append({
+        'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'role': 'system',
+        'token_count': None,
+        'Exemption': 'PinnedInfo',
+        'content': pinned_message_content
+    })
+
+# Function to add a goal
+def add_goal(goal_text, priority='No Priority', significance='No Significance'):
+    goal = Goal(goal_text, priority, significance)
+    tasks_list.append(goal)
+    update_pinned_information()
+
+# Function to add an apriority goal
+def add_apriority_goal(goal_text):
+    apriority_tasks.append(goal_text)
+    update_pinned_information()
+
+# Function to update inventory
+def update_inventory(inventory_items):
+    global notable_inventory
+    notable_inventory = inventory_items.split(';')
+    update_pinned_information()
+
+# Function to update party status
+def update_party_status(party_status_text):
+    global party_status
+    party_status = party_status_text.split(';')
+    update_pinned_information()
+
+# Function to update recent context
+def update_recent_context(context_events):
+    global recent_context_events
+    recent_context_events = context_events.split(';')
+    update_pinned_information()
+
+# Function to mark a goal as completed
+def mark_goal_as_completed(goal_id):
+    for goal in tasks_list:
+        if goal.id == goal_id:
+            goal.status = 'Complete'
+            significant_past_tasks.append({
+                'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'goal': goal.text
+            })
+            # Keep only the last 5 significant goals
+            significant_past_tasks[:] = significant_past_tasks[-5:]
+            break
+    update_pinned_information()    
+
+# Function to display help message
+def display_help():
+    help_message = """
+    **Available Commands:**
+
+    - **Goal Management Commands**:
+        - ADD_GOAL(goal_text; priority; significance): Add a new goal with priority and significance.
+        - ADD_APRIORITY_GOAL(goal_text): Add a new open-ended goal.
+        - UPDATE_INVENTORY(inventory_items): Update your notable inventory; separate items with semicolons.
+        - UPDATE_PARTY(party_status): Update your current party status; provide details for each Pokémon, separated by semicolons.
+        - UPDATE_CONTEXT(recent_events): Update recent context and events; separate events with semicolons.
+        - COMPLETE_GOAL(goal_id): Mark a goal as completed.
+
+    - **PyAutoGUI Commands**:
+        - pyag: command: Execute a pyautogui command.
+
+    - **Other Commands**:
+        - tasks: Trigger a tasksning inference.
+        - HELP: Display this help message.
+
+    """
+    display_message("system", help_message)
 
 def manage_image_history(new_image_base64, image_timestamp=None, sticky=False):
     global chat_history
@@ -765,7 +1342,8 @@ def user_input_handler():
             handle_commands(user_input, is_user=True)
         else:
             #Instead of sending the input to ChatGPT, queue it for the next screenshot
-            queued_user_input = user_input
+            # Instead of sending the input to ChatGPT, queue it for the next screenshot
+            queued_user_input.put(user_input)
             #send_prompt_to_chatgpt(user_input)
             #send_prompt_to_chatgpt(response_text)
             #response_text = send_prompt_to_chatgpt(handoff_prompt)
@@ -790,15 +1368,7 @@ def get_user_input(Always_=None, hide_input=None):
     else:
         return input("")
 
-# Function for human-like click
-#def human_like_click(x_pixel, y_pixel):
-#    start_time = time.time()
-#    while time.time() - start_time < circle_duration:
-#        angle = ((time.time() - start_time) / circle_duration) * 2 * math.pi
-#        x = x_pixel + math.cos(angle) * circle_radius
-#        y = y_pixel + math.sin(angle) * circle_radius
-#        pyautogui.moveTo(x, y, duration=0.1)
-#    pyautogui.click(x_pixel, y_pixel)
+
 
 def human_like_click(x_pixel, y_pixel): #now with random effects to better bypass captchas
     # Randomize the circle duration and radius slightly
@@ -821,566 +1391,435 @@ def human_like_click(x_pixel, y_pixel): #now with random effects to better bypas
     time.sleep(random.uniform(0.1, 0.3))
     pyautogui.click(x_pixel, y_pixel)
 
-def handle_commands(command_input, is_user=True, exemption=None):
-    global chat_history
-    global disable_commands
-    global REQUIRE_POWER_WORD
-    global show_user_text
-    global show_ai_text
-    global hide_ai_commands
-    global hide_user_commands
-    global token_counter
-    global enable_unimportant_messages
-    global enable_important_messages
-    global ADD_UMSGS_TO_HISTORY
-    global ADD_IMSGS_TO_HISTORY
-    global Always_
-    global hide_input
-    global image_detail
-    global latest_image_detail
-    global High_Detail
-    global MAX_IMAGES_IN_HISTORY
+    # Command Dispatch Dictionary
 
-    if command_input.startswith('/*'):
+
+
+
+
+def save_pinned_tasks(file_name="pinned_tasks.json"):
+    data_to_save = {
+        'goals_list': [goal.__dict__ for goal in tasks_list],
+        'apriority_goals': apriority_tasks,
+        'notable_inventory': notable_inventory,
+        'party_status': party_status,
+        'recent_context_events': recent_context_events,
+        'hierarchical_tasks': hierarchical_tasks,
+        'significant_past_goals': significant_past_tasks,
+        'recent_executed_actions': recent_executed_actions
+    }
+    with open(file_name, 'w') as f:
+        json.dump(data_to_save, f, indent=4)
+    print(f"Pinned tasks saved to {file_name}")
+
+def load_pinned_tasks(file_name="pinned_tasks.json"):
+    global tasks_list, apriority_tasks, notable_inventory, party_status
+    global recent_context_events, hierarchical_tasks, significant_past_tasks
+    global recent_executed_actions
+
+    if not os.path.exists(file_name):
+        print(f"No saved pinned tasks found at {file_name}")
+        return
+
+    with open(file_name, 'r') as f:
+        data_loaded = json.load(f)
+
+    tasks_list = [Goal(**goal_data) for goal_data in data_loaded.get('goals_list', [])]
+    apriority_tasks = data_loaded.get('apriority_goals', [])
+    notable_inventory = data_loaded.get('notable_inventory', [])
+    party_status = data_loaded.get('party_status', [])
+    recent_context_events = data_loaded.get('recent_context_events', [])
+    hierarchical_tasks = data_loaded.get('hierarchical_tasks', [])
+    significant_past_tasks = data_loaded.get('significant_past_goals', [])
+    recent_executed_actions = data_loaded.get('recent_executed_actions', [])
+
+    update_pinned_information()
+    print(f"Pinned tasks loaded from {file_name}")
+
+def toggle_power_word(args, is_user):
+    global REQUIRE_POWER_WORD
+    REQUIRE_POWER_WORD = not REQUIRE_POWER_WORD
+    display_message("system", f"POWER_WORD requirement toggled to {'ON' if REQUIRE_POWER_WORD else 'OFF'}.")
+
+def init_command(args, is_user):
+    global chat_history
+    init_summary = ' '.join(args)
+    chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Init summary')]
+    update_chat_history('user', f'Pinned Init summary: {init_summary}')
+    print(f"Pinned Init summary: {init_summary}")
+
+def pin_command(args, is_user):
+    exemption_context = ' '.join(args)
+    exemption_type = "Pinned"
+    display_message("assistant", f'Exemption: {exemption_context}', include_command=True)
+    update_chat_history('assistant', {'type': 'text', 'text': f'Exemption: {exemption_context}'}, exemption=exemption_type)
+    print(f"Executing command: PIN | Is user: {is_user}")
+
+def add_goal_command(args, is_user):
+    if not args:
+        display_message("error", "ADD_GOAL requires at least one argument (goal_text).")
+        return
+    goal_text = args[0]
+    priority = args[1] if len(args) > 1 else 'No Priority'
+    significance = args[2] if len(args) > 2 else 'No Significance'
+    add_goal(goal_text, priority, significance)
+    display_message('system', f"Added goal: {goal_text} with priority: {priority} and significance: {significance}")
+    print(f"Executing command: ADD_GOAL | Is user: {is_user}")
+
+def add_apriority_goal_command(args, is_user):
+    if not args:
+        display_message("error", "ADD_APRIORITY_GOAL requires at least one argument (goal_text).")
+        return
+    goal_text = args[0]
+    add_apriority_goal(goal_text)
+    display_message('system', f"Added apriority goal: {goal_text}")
+    print(f"Executing command: ADD_APRIORITY_GOAL | Is user: {is_user}")
+
+def update_inventory_command(args, is_user):
+    if not args:
+        display_message("error", "UPDATE_INVENTORY requires at least one argument (inventory_items).")
+        return
+    inventory_items = args[0]
+    update_inventory(inventory_items)
+    display_message('system', f"Updated inventory: {inventory_items}")
+    print(f"Executing command: UPDATE_INVENTORY | Is user: {is_user}")
+
+def update_party_command(args, is_user):
+    if not args:
+        display_message("error", "UPDATE_PARTY requires at least one argument (party_status_text).")
+        return
+    party_status_text = args[0]
+    update_party_status(party_status_text)
+    display_message('system', f"Updated party status: {party_status_text}")
+    print(f"Executing command: UPDATE_PARTY | Is user: {is_user}")
+
+def update_context_command(args, is_user):
+    if not args:
+        display_message("error", "UPDATE_CONTEXT requires at least one argument (context_events).")
+        return
+    context_events = args[0]
+    update_recent_context(context_events)
+    display_message('system', f"Updated recent context: {context_events}")
+    print(f"Executing command: UPDATE_CONTEXT | Is user: {is_user}")
+
+def complete_goal_command(args, is_user):
+    if not args:
+        display_message("error", "COMPLETE_GOAL requires one argument (goal_id).")
+        return
+    try:
+        goal_id = int(args[0])
+        mark_goal_as_completed(goal_id)
+        display_message('system', f"Marked goal {goal_id} as completed")
+        print(f"Executing command: COMPLETE_GOAL | Is user: {is_user}")
+    except ValueError:
+        display_message("error", "Invalid goal ID. It must be an integer.")
+        print(f"Error executing command: COMPLETE_GOAL | Is user: {is_user}")
+
+def tasks_command(args, is_user):
+    # This is a trigger for tasksning inference
+    display_message('system', "Triggering tasksning inference")
+    # Implement the tasksning logic as needed
+    print(f"Executing command: tasks | Is user: {is_user}")
+
+def save_tasks_command(args, is_user):
+    file_name = args[0].strip() if args else "pinned_tasks.json"
+    save_pinned_tasks(file_name)
+    display_message('system', f"Pinned tasks saved to {file_name}")
+    print(f"Executing command: SAVE_TASKS | Is user: {is_user}")
+
+def load_tasks_command(args, is_user):
+    file_name = args[0].strip() if args else "pinned_tasks.json"
+    load_pinned_tasks(file_name)
+    display_message('system', f"Pinned tasks loaded from {file_name}")
+    print(f"Executing command: LOAD_TASKS | Is user: {is_user}")
+
+
+def help_command(args, is_user):
+    display_help()
+    print(f"Executing command: HELP | Is user: {is_user}")
+
+
+
+def clear_nopin_percentage_command(args, is_user):
+    try:
+        percentage = float(args[0]) / 100
+        if 0 <= percentage <= 1:
+            clear_chat_history_except_pinned(percentage)
+            display_message('system', f"Cleared {args[0]}% of non-pinned messages.")
+        else:
+            display_message('error', "Invalid percentage. Please enter a number between 0 and 100.")
+    except (ValueError, IndexError):
+        display_message('error', "Invalid command format. Usage: CLEAR_NOPIN%(number)")
+
+def clear_percentage_command(args, is_user):
+    try:
+        percentage = float(args[0]) / 100
+        if 0 <= percentage <= 1:
+            clear_chat_history(percentage)
+            display_message('system', f"Cleared {args[0]}% of messages.")
+        else:
+            display_message('error', "Invalid percentage. Please enter a number between 0 and 100.")
+    except (ValueError, IndexError):
+        display_message('error', "Invalid command format. Usage: CLEAR%(number)")
+
+def clear_all_command(args, is_user):
+    global chat_history
+    chat_history = [
+        entry for entry in chat_history
+        if entry.get('Exemption') in ['Pinned', 'Init', 'Handoff']
+    ]
+    display_message('system', "All messages cleared except pinned messages.")
+
+def edit_msgs_command(args, is_user):
+    # Implement the logic to edit messages based on timestamp and new content
+    # For this example, we'll assume args contain pairs of timestamp and new content
+    if not args or len(args) < 2:
+        display_message('error', "EDIT_MSGS requires pairs of timestamp and new content.")
+        return
+    for i in range(0, len(args), 2):
+        timestamp = args[i]
+        new_content = args[i + 1] if i + 1 < len(args) else ''
+        found = False
+        for entry in chat_history:
+            if entry['timestamp'] == timestamp:
+                entry['content'] = {'type': 'text', 'text': new_content}
+                found = True
+                break
+        if found:
+            display_message('system', f"Message with timestamp {timestamp} edited successfully.")
+        else:
+            display_message('error', f"No message found with timestamp {timestamp}.")
+
+def delete_msg_command(args, is_user):
+    timestamp = args[0] if args else None
+    if timestamp:
+        global chat_history
+        chat_history = [entry for entry in chat_history if entry['timestamp'] != timestamp]
+        display_message('system', f"Message with timestamp {timestamp} deleted.")
+    else:
+        display_message('error', "DELETE_MSG command requires a timestamp argument.")
+
+def save_chat_history_command(args, is_user):
+    file_name = args[0] if args else 'chat_history'
+    save_chat_history_to_file(chat_history, file_name)
+    display_message('system', f"Chat history saved to {file_name}.")
+
+def display_history_command(args, is_user):
+    if chat_history:
+        for entry in chat_history:
+            timestamp = entry.get('timestamp', 'No timestamp')
+            role = entry.get('role', 'No role')
+            content = entry.get('content', {})
+            if isinstance(content, dict):
+                message = content.get('text', 'No content')
+            else:
+                message = str(content)
+            print(f"{timestamp} - {role}: {message}")
+    else:
+        display_message('system', "No messages in the chat history.")
+
+def save_pins_command(args, is_user):
+    pinned_entries = [
+        entry['content']['text'] for entry in chat_history
+        if entry.get('Exemption') == 'Pinned'
+    ]
+    file_name = args[0] if args else 'pinned_entries.txt'
+    write_content_to_file('\n'.join(pinned_entries), file_name)
+    display_message('system', f"Pinned entries saved to {file_name}.")
+
+def save_all_pins_command(args, is_user):
+    all_entries = [f"{entry['role']}: {entry['content']}" for entry in chat_history]
+    file_name = args[0] if args else 'all_entries.txt'
+    write_content_to_file('\n'.join(all_entries), file_name)
+    display_message('system', f"All entries saved to {file_name}.")
+
+def toggle_auto_prompt_command(args, is_user):
+    global enable_auto_prompt
+    enable_auto_prompt = not enable_auto_prompt
+    status = 'enabled' if enable_auto_prompt else 'disabled'
+    display_message('system', f"Auto-prompting has been {status}.")
+
+def toggle_always_command(args, is_user):
+    global Always_, hide_input
+    if len(args) == 2:
+        Always_ = args[0].lower() == 'on'
+        hide_input = args[1].lower() == 'true'
+        display_message('system', f"Always_ set to {Always_}, hide_input set to {hide_input}")
+    else:
+        display_message('error', "Invalid number of parameters. Usage: TOGGLE_ALWAYS(on|off, true|false)")
+
+def toggle_image_detail_command(args, is_user):
+    global image_detail
+    image_detail = 'high' if image_detail == 'low' else 'low'
+    display_message('system', f"Global image_detail toggled to: {image_detail}")
+
+def toggle_latest_image_detail_command(args, is_user):
+    global latest_image_detail
+    latest_image_detail = 'high' if latest_image_detail == 'low' else 'low'
+    display_message('system', f"Global latest_image_detail toggled to: {latest_image_detail}")
+
+def set_high_detail_command(args, is_user):
+    global High_Detail
+    try:
+        High_Detail = int(args[0])
+        display_message('system', f"Global High_Detail set to: {High_Detail}")
+    except (ValueError, IndexError):
+        display_message('error', "Invalid value for High_Detail. Must be an integer.")
+
+def set_max_images_in_history_command(args, is_user):
+    global MAX_IMAGES_IN_HISTORY
+    try:
+        MAX_IMAGES_IN_HISTORY = int(args[0])
+        display_message('system', f"Global MAX_IMAGES_IN_HISTORY set to: {MAX_IMAGES_IN_HISTORY}")
+    except (ValueError, IndexError):
+        display_message('error', "Invalid value for MAX_IMAGES_IN_HISTORY. Must be an integer.")
+
+def set_image_detail_command(args, is_user):
+    global image_detail
+    try:
+        detail = args[0].strip().lower()
+        if detail in ["low", "high"]:
+            image_detail = detail
+            display_message('system', f"Global image_detail set to: {image_detail}")
+        else:
+            display_message('error', "Invalid value for image_detail. Must be 'low' or 'high'.")
+    except IndexError:
+        display_message('error', "No value provided for image_detail.")
+
+def set_latest_image_detail_command(args, is_user):
+    global latest_image_detail
+    try:
+        detail = args[0].strip().lower()
+        if detail in ["low", "high"]:
+            latest_image_detail = detail
+            display_message('system', f"Global latest_image_detail set to: {latest_image_detail}")
+        else:
+            display_message('error', "Invalid value for latest_image_detail. Must be 'low' or 'high'.")
+    except IndexError:
+        display_message('error', "No value provided for latest_image_detail.")
+
+def hide_user_text_command(args, is_user):
+    global show_user_text
+    show_user_text = not show_user_text
+    status = 'displayed' if show_user_text else 'hidden'
+    display_message('system', f"User text will now be {status}.")
+
+def hide_ai_text_command(args, is_user):
+    global show_ai_text
+    show_ai_text = not show_ai_text
+    status = 'displayed' if show_ai_text else 'hidden'
+    display_message('system', f"AI text will now be {status}.")
+
+def hide_ai_commands_command(args, is_user):
+    global hide_ai_commands
+    hide_ai_commands = not hide_ai_commands
+    status = 'displayed' if not hide_ai_commands else 'hidden'
+    display_message('system', f"AI commands will now be {status}.")
+
+def hide_user_commands_command(args, is_user):
+    global hide_user_commands
+    hide_user_commands = not hide_user_commands
+    status = 'displayed' if not hide_user_commands else 'hidden'
+    display_message('system', f"User commands will now be {status}.")
+
+
+def toggle_unimportant_messages_command(args, is_user):
+    global enable_unimportant_messages
+    enable_unimportant_messages = not enable_unimportant_messages
+    status = 'enabled' if enable_unimportant_messages else 'disabled'
+    display_message('system', f"Unimportant messages have been {status}.")
+
+def toggle_important_messages_command(args, is_user):
+    global enable_important_messages
+    enable_important_messages = not enable_important_messages
+    status = 'enabled' if enable_important_messages else 'disabled'
+    display_message('system', f"Important messages have been {status}.")
+
+def toggle_add_umsgs_to_history_command(args, is_user):
+    global ADD_UMSGS_TO_HISTORY
+    ADD_UMSGS_TO_HISTORY = not ADD_UMSGS_TO_HISTORY
+    status = 'enabled' if ADD_UMSGS_TO_HISTORY else 'disabled'
+    display_message('system', f"Adding unimportant messages to history is now {status}.")
+
+def toggle_add_imsgs_to_history_command(args, is_user):
+    global ADD_IMSGS_TO_HISTORY
+    ADD_IMSGS_TO_HISTORY = not ADD_IMSGS_TO_HISTORY
+    status = 'enabled' if ADD_IMSGS_TO_HISTORY else 'disabled'
+    display_message('system', f"Adding important messages to history is now {status}.")
+
+
+def toggle_umsgs_decay_check_command(args, is_user):
+    global CHECK_UMSGS_DECAY
+    CHECK_UMSGS_DECAY = not CHECK_UMSGS_DECAY
+    status = 'ON' if CHECK_UMSGS_DECAY else 'OFF'
+    display_message('system', f"Unimportant messages decay check toggled to {status}.")
+
+def toggle_imsgs_decay_check_command(args, is_user):
+    global CHECK_IMSGS_DECAY
+    CHECK_IMSGS_DECAY = not CHECK_IMSGS_DECAY
+    status = 'ON' if CHECK_IMSGS_DECAY else 'OFF'
+    display_message('system', f"Important messages decay check toggled to {status}.")
+
+def handle_command_toggle(command):
+    global disable_commands
+    if command == '/*':
         disable_commands = True
         display_message("system", "Command processing is now disabled.")
-        return
-    elif command_input.startswith('*/'):
+        return True  # Indicate that a toggle command was processed
+    elif command == '*/':
         disable_commands = False
         display_message("system", "Command processing is now enabled.")
-        return
+        return True  # Indicate that a toggle command was processed
+    return False  # Indicate that no toggle command was processed
 
-    if disable_commands:
-        display_message("system", "Command processing is currently disabled.")
-        return
 
-    if command_input is None:
-        return
-
+def handle_commands(command_input, is_user=True, exemption=None, is_assistant=False):
     global last_command
+    global disable_commands  # Add this since we're accessing it
+
     last_command = command_input
-    command = None
 
-    try:
-        commands, *comment = command_input.split('#')
-        commands = commands.split(';')
-        for command in commands:
-            command = command.strip()
-            if not command:
-                continue
+    commands = command_input.split(';')
+    for command in commands:
+        command = command.strip()
+        if not command:
+            continue
 
+        # Handle block comments using handle_command_toggle
+        if handle_command_toggle(command):
+            # If the command was a toggle command, return from handle_commands
+            return
+
+        if disable_commands:
+            display_message("system", "Command processing is currently disabled.")
+            return  # Or use 'continue' if you want to skip this command but process others
+
+        # Extract command and arguments
+        if '(' in command and ')' in command:
+            cmd_name, args_str = command.split('(', 1)
+            args_str = args_str.rstrip(')')
+            args = [arg.strip() for arg in args_str.split(',') if arg.strip()]
+        else:
+            cmd_name = command
+            args = []
+
+        # Handle pyautogui commands separately
+        if cmd_name.startswith('pyag:'):
+            pyag_command = cmd_name[5:]
+            handle_pyautogui_command(pyag_command, args)
+            continue
+
+        # Lookup the command in the command dispatch dictionary
+        handler = command_dispatch.get(cmd_name.strip().upper())
+
+        if handler:
             try:
-                if command.startswith('pyag:'):
-                    pyag_commands = command[5:].split(';')
-                    for pyag_command in pyag_commands:
-                        pyag_command = pyag_command.strip()
-                        if not pyag_command or pyag_command.startswith('#'):
-                            continue
-
-                        if '(' in pyag_command and ')' in pyag_command:
-                            cmd, args_part = pyag_command.split('(', 1)
-                            args_part = args_part.rstrip(')')
-                            args = args_part.split(',') if args_part else []
-                            cmd = cmd.strip().lower()
-                        else:
-                            args = []
-                            cmd = pyag_command.lower()
-
-                        handle_pyautogui_command(cmd, args)
-                    #update_chat_history('system', command_input)
-                    continue
-
-                if '(' in command and ')' in command:
-                    cmd, args_part = command.split('(', 1)
-                    args_part = args_part.rstrip(')')
-                    args = args_part.split(',') if args_part else []
-                    cmd = command.lower()
-                else:
-                    args = []
-                    cmd = command.lower()
-
-                if cmd == "toggle_image_detail":
-                    image_detail = "high" if image_detail == "low" else "low"
-                    display_message("system", f"Global image_detail toggled to: {image_detail}")
-                    #update_chat_history('system', f"Global image_detail toggled to: {image_detail}")
-
-                elif cmd == "toggle_latest_image_detail":
-                    latest_image_detail = "high" if latest_image_detail == "low" else "low"
-                    display_message("system", f"Global latest_image_detail toggled to: {latest_image_detail}")
-                    #update_chat_history('system', f"Global latest_image_detail toggled to: {latest_image_detail}")
-
-                elif cmd == "set_high_detail":
-                    try:
-                        value = int(args[0])
-                        High_Detail = value
-                        display_message("system", f"Global High_Detail set to: {High_Detail}")
-                        #update_chat_history('system', f"Global High_Detail set to: {High_Detail}")
-                    except ValueError:
-                        display_message("error", "Invalid value for High_Detail. Must be an integer.")
-
-                elif cmd == "set_max_images_in_history":
-                    try:
-                        value = int(args[0])
-                        MAX_IMAGES_IN_HISTORY = value
-                        display_message("system", f"Global MAX_IMAGES_IN_HISTORY set to: {MAX_IMAGES_IN_HISTORY}")
-                        #update_chat_history('system', f"Global MAX_IMAGES_IN_HISTORY set to: {MAX_IMAGES_IN_HISTORY}")
-                    except ValueError:
-                        display_message("error", "Invalid value for MAX_IMAGES_IN_HISTORY. Must be an integer.")
-
-                elif cmd == "set_image_detail":
-                    try:
-                        detail = args[0].strip().lower()
-                        if detail in ["low", "high"]:
-                            image_detail = detail
-                            display_message("system", f"Global image_detail set to: {image_detail}")
-                            #update_chat_history('system', f"Global image_detail set to: {image_detail}")
-                        else:
-                            display_message("error", "Invalid value for image_detail. Must be 'low' or 'high'.")
-                    except IndexError:
-                        display_message("error", "No value provided for image_detail.")
-
-                elif cmd == "set_latest_image_detail":
-                    try:
-                        detail = args[0].strip().lower()
-                        if detail in ["low", "high"]:
-                            latest_image_detail = detail
-                            display_message("system", f"Global latest_image_detail set to: {latest_image_detail}")
-                            #update_chat_history('system', f"Global latest_image_detail set to: {latest_image_detail}")
-                        else:
-                            display_message("error", "Invalid value for latest_image_detail. Must be 'low' or 'high'.")
-                    except IndexError:
-                        display_message("error", "No value provided for latest_image_detail.")
-
-
-
-                else:
-                    display_message("error", f"Invalid command format: {command}")
-                    continue
-
-                #update_chat_history('system', command_input)
-
+                handler(args, is_user)
             except Exception as e:
-                display_message("system", f"Output: {command}. Error: {str(e)}.")
-                continue
+                display_message("error", f"Error executing command '{cmd_name}': {e}")
+        else:
+            display_message("error", f"Unknown command: {cmd_name}")
 
-        if command_input.lower() in ("edit msgs"):
-            edit_commands = command_input[9:].split(';')
-            for edit_command in edit_commands:
-                try:
-                    components = edit_command.strip().split(' ')
-                    timestamp = components[-1]
-                    new_content = ' '.join(components[:-1]).strip()
-
-                    found = False
-                    for entry in chat_history:
-                        if entry['timestamp'] == timestamp:
-                            current_exemption = entry.get('Exemption', 'None')
-                            entry['Exemption'] = current_exemption
-                            current_time = datetime.datetime.now()
-                            new_timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S')
-                            new_token_count = len(new_content.split())
-
-                            entry['content'] = {'type': 'text', 'text': f"Edited: {new_content} {new_token_count} {new_timestamp}"}
-                            entry['token_count'] = new_token_count
-                            entry['timestamp'] = new_timestamp
-                            entry['Exemption'] = current_exemption
-                            found = True
-                            break
-
-                    if found:
-                        print(f"Message with timestamp {timestamp} edited successfully!")
-                        #update_chat_history('system', command_input)
-                    else:
-                        print(f"No message found with timestamp {timestamp}.")
-                except ValueError:
-                    print(f"Invalid edit command format: {edit_command}. Correct format is 'new content timestamp'")
-
-        if command_input.startswith('toggle_always'):
-            params = command_input.split()[1:]
-            if len(params) == 2:
-                Always_ = params[0].lower() == 'on'
-                hide_input = params[1].lower() == 'true'
-            else:
-                print("Invalid number of parameters. Usage: toggle_always on|off true|false")
-
-            #update_chat_history('system', command_input)
-
-        if command_input.startswith("TOGGLE_POWER_WORD"):
-            REQUIRE_POWER_WORD = not REQUIRE_POWER_WORD
-            display_message("system", f"POWER_WORD requirement toggled to {'ON' if REQUIRE_POWER_WORD else 'OFF'}.")
-            return
-
-        if command_input.startswith('INIT'):
-            chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Init summary')]
-            init_summary = command_input[5:]
-            update_chat_history('user', f'Pinned Init summary: {init_summary}')
-            print(f"Pinned Init summary: {init_summary}")
-            update_chat_history('system', command_input)
-
-        if command_input.startswith("PIN"):
-            exemption_context = command_input[4:].strip()
-            exemption_type = "Pinned"
-            display_message("assistant", f'Exemption: {exemption_context}', include_command=True)
-            update_chat_history('assistant', {'type': 'text', 'text': f'Exemption: {exemption_context}'}, exemption=exemption_type)
-            update_chat_history('system', command_input)
-
-        if command_input.startswith("REMOVE_MSGS"):
-            try:
-                _, time_range = command_input.split("REMOVE_MSGS", 1)
-                start_time_str, _, end_time_str = time_range.strip().partition(" to ")
-                start_time = datetime.datetime.strptime(start_time_str.strip(), '%Y-%m-%d %H:%M:%S')
-                end_time = datetime.datetime.strptime(end_time_str.strip(), '%Y-%m-%d %H:%M:%S')
-
-                messages_to_remove = [msg for msg in chat_history if start_time <= datetime.datetime.strptime(msg['timestamp'], '%Y-%m-%d %H:%M:%S') <= end_time]
-
-                if not messages_to_remove:
-                    print("No messages found within the provided time range.")
-                    return
-
-                chat_history = [msg for msg in chat_history if msg not in messages_to_remove]
-                print(f"Removed {len(messages_to_remove)} messages from the chat history.")
-                update_chat_history('system', command_input)
-            except Exception as e:
-                print(f"Error processing the REMOVE_MSGS command: {e}")
-
-        if command_input.startswith('RETRIEVE_HANDOFF'):
-            handoff_filename = command_input.split('_')[2].strip()
-            if not handoff_filename:
-                print("No handoff file specified.")
-                return
-            handoff_filepath = f"{logging_folder}/{handoff_filename}"
-            if not os.path.exists(handoff_filepath):
-                print(f"No such file exists: {handoff_filepath}")
-                return
-            with open(handoff_filepath, "r") as file:
-                handoff_summary = file.read().strip()
-            if any(entry['content'].startswith(f'Pinned Handoff context: {handoff_summary}') for entry in chat_history):
-                print("Handoff summary already in chat history.")
-                return
-            chat_history.append({'role': 'assistant', 'content': f'Pinned Handoff context: {handoff_summary}'})
-            print(f"Pinned Handoff context from file: {handoff_summary}")
-
-        if command_input.startswith("HANDOFF"):
-            handoff_summary = command_input[7:].strip()
-            hbuffer.append(handoff_summary)
-            timestamp = int(time.time())
-            with open(f"{logging_folder}/handoff_{timestamp}.txt", "w") as log_file:
-                log_file.write(handoff_summary)
-            update_chat_history('assistant', f'Pinned Handoff context: {handoff_summary}')
-            all_entries = [f"{entry['role']}: {entry['content']}" for entry in chat_history]
-            write_content_to_file("\n".join(all_entries), "all_entries.txt")
-            print("Handoff summary saved.")
-            restart_chatgpt_instance()
-
-        if command_input.lower() in ("TOGGLE AUTO PROMPT"):
-            global enable_auto_prompt
-            enable_auto_prompt = not enable_auto_prompt
-            if enable_auto_prompt:
-                display_message("system", "Auto-prompting has been enabled.")
-            else:
-                display_message("system", "Auto-prompting has been disabled.")
-
-        if command_input.lower() in ("shutdown instance"):
-            shutdown_chatgpt_instance_and_exit()
-
-        if command_input.lower() in ('terminate instance'):
-            terminate_instance()
-
-        if command_input.startswith("RECALL"):
-            recall_previous_summary(character_name)
-            update_chat_history('system', command_input)
-
-        if command_input.lower() in ("clear_nopin%"):
-            try:
-                percentage_to_clear = float(command_input[12:].strip()) / 100
-                if 0 <= percentage_to_clear <= 1:
-                    clear_chat_history_except_pinned(percentage_to_clear)
-                    update_chat_history('system', command_input)
-                else:
-                    print("Invalid percentage. Please enter a number between 0 and 100.")
-            except ValueError:
-                print("Invalid command format. Expected format is 'CLEAR_NOPIN%{number}'.")
-
-        if command_input.startswith("CLEAR%"):
-            try:
-                percentage_to_clear = float(command_input[6:].strip()) / 100
-                if 0 <= percentage_to_clear <= 1:
-                    clear_chat_history(percentage_to_clear)
-                    update_chat_history('system', command_input)
-                else:
-                    print("Invalid percentage. Please enter a number between 0 and 100.")
-            except ValueError:
-                print("Invalid command format. Expected format is 'CLEAR%{number}'.")
-
-        if command_input.lower() in ("CLEAR ALL MESSAGES"):
-            chat_history = [
-                entry for entry in chat_history
-                if 'text' in entry['content'] and
-                   (entry['content']['text'].startswith('Pinned Init summary') or
-                    entry['content']['text'].startswith('Pinned Handoff context'))
-            ]
-            print("Chat history cleared, only pinned summaries remain.")
-            update_chat_history('system', command_input)
-
-        if command_input.lower() in ("CLEAR INIT"):
-            chat_history = [
-                entry for entry in chat_history
-                if 'text' in entry['content'] and
-                   not entry['content']['text'].startswith('Pinned Init summary')
-            ]
-            print("Chat history cleared, Init summaries removed.")
-            update_chat_history('system', command_input)
-
-        if command_input.lower() in ("CLEAR PIN"):
-            chat_history = [entry for entry in chat_history if entry.get('Exemption') != 'Pinned']
-            print("Pinned messages cleared.")
-            update_chat_history('system', command_input)
-
-        if command_input.lower() in ("CLEAR HANDOFF"):
-            chat_history = [entry for entry in chat_history if not entry['content'].startswith('Pinned Handoff context')]
-            print("Chat history cleared, Handoff summaries removed.")
-
-        if command_input.startswith("DELETE_MSG:"):
-            timestamp = command_input[11:].strip()
-            chat_history = [entry for entry in chat_history if entry['timestamp'] != timestamp]
-            print(f"Message with timestamp {timestamp} deleted successfully!")
-            update_chat_history('system', command_input)
-
-        if command_input.startswith('SAVEPINNEDINIT'):
-            pinned_init_summaries = [entry['content']['text'][19:] for entry in chat_history if isinstance(entry['content'], dict) and entry['content']['text'].startswith('Pinned Init summary')]
-            write_content_to_file("\n".join(pinned_init_summaries), "pinned_init_summaries.txt")
-            update_chat_history('system', command_input)
-
-        if command_input.startswith('SAVEPINNEDHANDOFF'):
-            pinned_handoff_contexts = [entry['content'][22:] for entry in chat_history if entry['content'].startswith('Pinned Handoff context')]
-            write_content_to_file("\n".join(pinned_handoff_contexts), "pinned_handoff_contexts.txt")
-            update_chat_history('system', command_input)
-
-        if command_input.startswith('SAVEEXEMPTIONS'):
-            exemptions = [entry['content'][10:] for entry in chat_history if entry['content'].startswith('Exemption')]
-            write_content_to_file("\n".join(exemptions), "exemptions.txt")
-            update_chat_history('system', command_input)
-
-        if command_input.startswith('SAVE PINS'):
-            pinned_entries = [entry['content'] for entry in chat_history if entry['content'].startswith('Pinned Init summary') or entry['content'].startswith('Exemption') or entry['content'].startswith('Pinned Handoff context')]
-            write_content_to_file("\n".join(pinned_entries), "pinned_entries.txt")
-            update_chat_history('system', command_input)
-
-        if command_input.startswith('SAVE ALL PINS'):
-            all_entries = [f"{entry['role']}: {entry['content']}" for entry in chat_history]
-            write_content_to_file("\n".join(all_entries), "all_entries.txt")
-            update_chat_history('system', command_input)
-
-        if command_input == 'HELP_VISIBILITY':
-            display_message("system", """
-            HIDE - Toggle the visibility of user text.
-            HIDE_AI - Toggle the visibility of AI responses.
-            HIDE_AI_COMMANDS - Toggle the visibility of commands given by the AI.
-            HIDE_USER_COMMANDS - Toggle the visibility of commands issued by the user.
-            TOGGLE_IMSGS - Toggle visibility of important messages by all, and prevents them from appending chat history
-                important messages being PINS, INITS, HANDOFF.
-            TOGGLE_UMSGS - Toggle visibility of unimportant by all, and prevents them from appending chat history
-            """)
-            update_chat_history('system', command_input)
-
-        if command_input.startswith(('HELP', '/HELP', '/?', '~help', '/help', '-h', '--help', '/man', '-man', '--man', '-manual', '--manual', '/manual', '-manual', '/info', '-info', '--info', '-?', '--?')):
-            display_message("system", """
-            Here is the list of available commands and their descriptions:
-
-            -/? or HELP 
-
-            - "/* escape command
-              "*/" ends escape command
-                            
-            - HIDE_USER_TEXT: Toggle the visibility of user text. 
-              Usage: POWER_WORD HIDE_USER_TEXT
-
-            - HIDE_AI_TEXT: Toggle the visibility of AI responses.
-              Usage: POWER_WORD HIDE_AI_TEXT
-
-            - HIDE_AI_COMMANDS: Toggle the visibility of commands given by the AI.
-              Usage: POWER_WORD HIDE_AI_COMMANDS
-
-            - HIDE_USER_COMMANDS: Toggle the visibility of commands issued by the user.
-              Usage: POWER_WORD HIDE_USER_COMMANDS
-
-            - TOGGLE_IMSGS: Toggle visibility of important messages by all, and prevents them from appending to chat history.
-              Important messages include PINS, INITS, HANDOFF.
-              Usage: POWER_WORD TOGGLE_IMSGS
-
-            - TOGGLE_UMSGS: Toggle visibility of unimportant messages by all, and prevents them from appending to chat history.
-              Usage: POWER_WORD TOGGLE_UMSGS
-
-            - VKB_CMD: Execute a series of keyboard commands. Commands should be separated by a semicolon.
-              Example: POWER_WORD VKB_CMD: hold_A,0.5; B+SHIFT; C
-
-            - CURSORCMD: Execute a series of cursor commands. Commands should be separated by a semicolon.
-              Example: POWER_WORD CURSORCMD: move,100,200; click,300,400
-
-            - INIT: Clears any existing 'Pinned Init summary' from the chat history and adds a new one.
-              Usage: INIT {your summary here}
-
-            - RETRIEVE_HANDOFF: Retrieves a handoff summary from a specified file and adds it to the chat history, if not already present.
-              Usage: RETRIEVE_HANDOFF_{filename}
-                        
-            - PIN: Add a new exemption context.
-              Example: POWER_WORD PIN This is an exemption context.
-
-            - HANDOFF: Pin a handoff context.
-              Example: POWER_WORD HANDOFF This is a handoff context.
-
-            - CLEAR_NOPIN%: Clears a specified percentage of messages that are not pinned from the chat history.
-              Usage: CLEAR_NOPIN%{number}
-
-            - CLEAR_NON_PINNED: Clears all messages that are not pinned (not starting with 'Pinned Init summary', 'Pinned Handoff context', or 'Exemption') from the chat history.
-              Usage: CLEAR_NON_PINNED
-
-            - CLEAR%: Clears a specified percentage of messages from the chat history.
-              Usage: CLEAR%{number}
-
-            - CLEARALL: Clears all messages except those that start with 'Pinned Init summary' or 'Pinned Handoff context' from the chat history.
-              Usage: CLEARALL
-
-            - EDIT_MSGS: Allows you to edit one or multiple messages based on their timestamps.
-              Usage: EDIT_MSGS timestamp~|~|~new content;timestamp~|~|~new content
-
-            - REMOVE_MSGS: Removes multiple messages from the chat history based on a start and end timestamp range.
-              Usage: REMOVE_MSGS {start timestamp} to {end timestamp}
-
-            - DELETE_MSG: Deletes a specific message from the chat history based on its timestamp.
-              Usage: DELETE_MSG:{timestamp}
-
-            - DISPLAY_HISTORY: Displays the entire chat history with timestamps and roles.
-              Usage: DISPLAY_HISTORY
-            """)
-            update_chat_history('system', command_input)
-
-        if command_input.lower() == 'hide user text':
-            show_user_text = not show_user_text
-            if show_user_text:
-                display_message("system", "User text will now be displayed.")
-            else:
-                display_message("system", "User text will now be hidden.")
-
-        if command_input.lower() == 'hide ai text':
-            show_ai_text = not show_ai_text
-            if show_ai_text:
-                display_message("system", "AI text will now be displayed.")
-            else:
-                display_message("system", "AI text will now be hidden.")
-
-        if command_input.lower() == 'hide ai commands':
-            hide_ai_commands = not hide_ai_commands
-            if hide_ai_commands:
-                display_message("system", "AI commands will now be hidden.")
-            else:
-                display_message("system", "AI commands will now be displayed.")
-
-        if command_input.lower() == 'hide user commands':
-            hide_user_commands = not hide_user_commands
-            if hide_user_commands:
-                display_message("system", "User commands will now be hidden.")
-            else:
-                display_message("system", "User commands will now be displayed.")
-
-        if command_input.lower() in ('toggle unimportant messages'):
-            enable_unimportant_messages = not enable_unimportant_messages
-            return
-
-        if command_input.lower() in ('toggle important messages'):
-            enable_important_messages = not enable_important_messages
-            return
-
-        if command_input.lower() in ('toggle add umsgs to history'):
-            ADD_UMSGS_TO_HISTORY = not ADD_UMSGS_TO_HISTORY
-            return
-
-        if command_input.lower() in ('toggle add imsgs to history'):
-            ADD_IMSGS_TO_HISTORY = not ADD_IMSGS_TO_HISTORY
-            return
-
-        if command_input.lower() in ('toggle unmsgs decay check'):
-            CHECK_UMSGS_DECAY = not CHECK_UMSGS_DECAY
-            print(f"Unimportant messages decay check toggled to {'ON' if CHECK_UMSGS_DECAY else 'OFF'}.")
-
-        if command_input.lower() in ('toggle imsgs decay check'):
-            CHECK_IMSGS_DECAY = not CHECK_IMSGS_DECAY
-            print(f"Important messages decay check toggled to {'ON' if CHECK_IMSGS_DECAY else 'OFF'}.")
-
-        if not enable_unimportant_messages and is_unimportant_message(command_input, exemption=exemption):
-            return
-
-        if not enable_important_messages and is_important_message(command_input, exemption=exemption):
-            return
-
-        if command_input.startswith('TOGGLE_SKIP_COMMANDS'):
-            SKIP_ADDING_COMMANDS_TO_CHAT_HISTORY = not SKIP_ADDING_COMMANDS_TO_CHAT_HISTORY
-            display_message("system", f"Skipping adding commands to chat history: {SKIP_ADDING_COMMANDS_TO_CHAT_HISTORY}")
-            return
-
-        if command_input.startswith("SAVECH"):
-            save_chat_history_to_file(chat_history, 'chat_history')
-            display_message("system", "Chat history saved to chat_history.txt.")
-            return
-
-        if command_input.startswith("DHISTORY"):
-            if chat_history:
-                for entry in chat_history:
-                    timestamp = entry.get('timestamp', 'No timestamp')
-                    role = entry.get('role', 'No role')
-                    token_count = entry.get('token_count', 'N/A')
-                    last_key = entry.get('last_key', 'N/A')
-                    mouse_position = entry.get('mouse_position', 'N/A')
-                    last_command = entry.get('last_command', 'N/A')
-
-                    content = entry.get('content', {})
-                    message = 'No content'
-
-                    if isinstance(content, dict):
-                        content_type = content.get('type')
-                        if content_type == 'text':
-                            message = content.get('text', 'No text content')[:15] + '...'
-                        elif content_type == 'image':
-                            message = f"Image Data: {content.get('data', '')[:30]}..."
-                        else:
-                            message = f'[Other content type: {content_type}]'
-                    else:
-                        message = str(content)[:80] + '...' if content else 'Empty content'
-                    print(f"{timestamp} - {role}: {message}")
-                    print(f"Token Count: {token_count}, Last Key: {last_key}, Mouse Position: {mouse_position}, Last Command: {last_command}")
-            else:
-                print("No messages in the chat history.")
-    except Exception as e:
-        display_message("system", f"Failed to execute command: {command}. Error: {str(e)}.")
-        role = "assistant" if not is_user else "user"
-        #if not (is_user and hide_user_commands) or (not is_user and hide_ai_commands):
-            #display_message(role, command_input)
-
-        token_count = count_tokens_in_history(chat_history)
-        tokens_in_message = len(list(tokenizer.encode(command_input)))
-        token_counter = tokens_in_message
-        print(f"Current token count in chat history else1: {token_count}")
-        if token_counter > 0.85 * token_limit and token_counter < token_limit:
-            print("Warning: Approaching token limit! Chat history will be saved.")
-        elif token_counter >= token_limit:
-            print("Token limit reached! Chat history saved and non-pinned messages will be cleared.")
-            clear_percentage_except_pinned_and_exempt("CLEAR%70")
-            token_counter = 0
-    else:
-        role = "assistant" if not is_user else "user"
-        #if not (is_user and hide_user_commands) or (not is_user and hide_ai_commands):
-        #    display_message(role, command_input)
-
-        token_count = count_tokens_in_history(chat_history)
-        tokens_in_message = len(list(tokenizer.encode(command_input)))
-        token_counter = tokens_in_message
-        print(f"Current token count in chat history e2: {token_count}")
-        if token_counter > 0.85 * token_limit and token_counter < token_limit:
-            print("Warning: Approaching token limit! Chat history will be saved.")
-        elif token_counter >= token_limit:
-            save_chat_history_to_file(chat_history, 'chat_history')
-            clear_percentage_except_pinned_and_exempt("CLEAR%70")
-            token_counter = 0
 
   
 
@@ -1491,6 +1930,203 @@ def handle_pyautogui_command(cmd, args):
             pyautogui.rightClick(x, y)
         display_message("system", f"Executed cursor command: {cmd} at ({x}, {y})")
 
+        
+def pyautogui_move(args):
+    if len(args) < 2:
+        display_message("error", "move command requires at least two arguments (x, y).")
+        return
+    try:
+        x = int(args[0].strip())
+        y = int(args[1].strip())
+        duration = float(args[2].strip()) if len(args) > 2 else 0
+        pyautogui.moveTo(x, y, duration=duration)
+        display_message("system", f"Moved cursor to ({x}, {y}) over {duration} seconds.")
+    except ValueError:
+        display_message("error", "Invalid arguments for move command. x and y must be integers.")
+
+def pyautogui_drag(args):
+    if len(args) < 2:
+        display_message("error", "drag command requires at least two arguments (x, y).")
+        return
+    try:
+        x = int(args[0].strip())
+        y = int(args[1].strip())
+        duration = float(args[2].strip()) if len(args) > 2 else 0
+        button = args[3].strip().lower() if len(args) > 3 else 'left'
+        pyautogui.dragTo(x, y, duration=duration, button=button)
+        display_message("system", f"Dragged cursor to ({x}, {y}) over {duration} seconds with {button} button.")
+    except ValueError:
+        display_message("error", "Invalid arguments for drag command. x and y must be integers.")
+
+def pyautogui_scroll_up(args):
+    amount = int(args[0].strip()) if args else 1
+    pyautogui.scroll(amount)
+    display_message("system", f"Scrolled up by {amount} units.")
+
+def pyautogui_scroll_down(args):
+    amount = int(args[0].strip()) if args else 1
+    pyautogui.scroll(-amount)
+    display_message("system", f"Scrolled down by {amount} units.")
+
+def pyautogui_release(args):
+    if not args:
+        display_message("error", "release command requires at least one argument (key).")
+        return
+    key = args[0].strip().lower()
+    if key in pyautogui.KEYBOARD_KEYS:
+        pyautogui.keyUp(key)
+        display_message("system", f"Key released: {key}")
+    else:
+        display_message("error", f"Invalid key name: {key}")
+
+def pyautogui_hotkey(args):
+    if not args:
+        display_message("error", "hotkey command requires at least one argument.")
+        return
+    keys = [key.strip() for key in args if key.strip().lower() in pyautogui.KEYBOARD_KEYS]
+    if not keys:
+        display_message("error", "Invalid keys for hotkey command.")
+        return
+    pyautogui.hotkey(*keys)
+    display_message("system", f"Hotkey pressed: {' + '.join(keys)}")
+
+def pyautogui_type(args):
+    if not args:
+        display_message("error", "type command requires at least one argument (text).")
+        return
+    text = args[0]
+    interval = float(args[1].strip()) if len(args) > 1 else 0.0
+    pyautogui.typewrite(text, interval=interval)
+    display_message("system", f"Typed text: {text}")
+
+def pyautogui_multi_press(args):
+    if not args:
+        display_message("error", "multi_press command requires at least one argument (keys).")
+        return
+    keys = [key.strip() for key in args if key.strip().lower() in pyautogui.KEYBOARD_KEYS]
+    if not keys:
+        display_message("error", "Invalid keys for multi_press command.")
+        return
+    pyautogui.press(keys)
+    display_message("system", f"Keys pressed: {', '.join(keys)}")
+
+def pyautogui_multi_hold(args):
+    if not args:
+        display_message("error", "multi_hold command requires at least one argument (keys).")
+        return
+    keys = [key.strip() for key in args if key.strip().lower() in pyautogui.KEYBOARD_KEYS]
+    if not keys:
+        display_message("error", "Invalid keys for multi_hold command.")
+        return
+    for key in keys:
+        pyautogui.keyDown(key)
+    display_message("system", f"Keys held down: {', '.join(keys)}")
+
+def pyautogui_multi_release(args):
+    if not args:
+        display_message("error", "multi_release command requires at least one argument (keys).")
+        return
+    keys = [key.strip() for key in args if key.strip().lower() in pyautogui.KEYBOARD_KEYS]
+    if not keys:
+        display_message("error", "Invalid keys for multi_release command.")
+        return
+    for key in keys:
+        pyautogui.keyUp(key)
+    display_message("system", f"Keys released: {', '.join(keys)}")
+
+def pyautogui_click(args):
+    try:
+        x = int(args[0].strip()) if len(args) > 0 else None
+        y = int(args[1].strip()) if len(args) > 1 else None
+    except ValueError:
+        display_message("error", "Invalid coordinates for click command. x and y must be integers.")
+        return
+    button = args[2].strip().lower() if len(args) > 2 else 'left'
+    pyautogui.click(x=x, y=y, button=button)
+    display_message("system", f"Clicked at ({x}, {y}) with {button} button.")
+
+def pyautogui_double_click(args):
+    try:
+        x = int(args[0].strip()) if len(args) > 0 else None
+        y = int(args[1].strip()) if len(args) > 1 else None
+    except ValueError:
+        display_message("error", "Invalid coordinates for doubleclick command. x and y must be integers.")
+        return
+    button = args[2].strip().lower() if len(args) > 2 else 'left'
+    pyautogui.doubleClick(x=x, y=y, button=button)
+    display_message("system", f"Double clicked at ({x}, {y}) with {button} button.")
+
+def pyautogui_hold_click(args):
+    try:
+        x = int(args[0].strip()) if len(args) > 0 else None
+        y = int(args[1].strip()) if len(args) > 1 else None
+        duration = float(args[2].strip()) if len(args) > 2 else 0.0
+    except ValueError:
+        display_message("error", "Invalid arguments for hold_click command. x and y must be integers, duration must be a float.")
+        return
+    button = args[3].strip().lower() if len(args) > 3 else 'left'
+    pyautogui.mouseDown(x=x, y=y, button=button)
+    time.sleep(duration)
+    pyautogui.mouseUp(button=button)
+    display_message("system", f"Hold clicked at ({x}, {y}) with {button} button for {duration} seconds.")
+
+def pyautogui_screenshot(args):
+    filename = args[0].strip() if args else 'screenshot.png'
+    pyautogui.screenshot(filename)
+    display_message("system", f"Screenshot saved as {filename}.")
+
+
+def handle_pyautogui_command(cmd_name, args):
+    handler = pyautogui_dispatch.get(cmd_name.lower())
+    if handler:
+        try:
+            handler(args)
+        except Exception as e:
+            display_message("error", f"Error executing pyautogui command '{cmd_name}': {e}")
+    else:
+        display_message("error", f"Unknown pyautogui command: {cmd_name}")
+
+
+
+def pyautogui_press(args):
+    if not args:
+        display_message("error", "press command requires at least one argument (key).")
+        return
+    key = args[0].strip().lower()
+    if key in pyautogui.KEYBOARD_KEYS:
+        pyautogui.press(key)
+        display_message("system", f"Key pressed: {key}")
+    else:
+        display_message("error", f"Invalid key name: {key}")
+
+
+
+def pyautogui_hold(args):
+    if not args:
+        display_message("error", "hold command requires at least one argument (key).")
+        return
+    key = args[0].strip().lower()
+    if key in pyautogui.KEYBOARD_KEYS:
+        duration = float(args[1]) if len(args) > 1 else None
+        pyautogui.keyDown(key)
+        if duration:
+            time.sleep(duration)
+            pyautogui.keyUp(key)
+        display_message("system", f"Key held for {duration} seconds: {key}")
+    else:
+        display_message("error", f"Invalid key name: {key}")
+
+
+
+
+def move_key_command(args):
+    if len(args) < 2:
+        display_message("error", "move_key command requires two arguments (key, tiles).")
+        return
+    key = args[0].strip().lower()
+    tiles = int(args[1])
+    move_key(key, tiles)
+    display_message("system", f"Moved key: {key} for {tiles} tiles")
 
 def move_key(key, tiles):
     time.sleep(1.35)  # Wait for 3.5 seconds before executing the command
@@ -1517,48 +2153,6 @@ def write_content_to_file(content, file_name):
             f.write(content)
         print(f"Content saved to {file_name}")
 
-#def save_chat_history_to_file(chat_history, file_name):
-#        # Get the current time and format it for the file name
-#    current_time = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-#    # Construct the file name with the current time
-#    file_nametime = f"{file_name}_{current_time}.txt"
-#    with open(file_nametime, 'w') as file:
-#        for entry in chat_history:
-#            file.write(str(entry) + '\n')
-#    print(f"Chat history saved to {file_name}")        
-#def save_chat_history_to_file(chat_history, file_name):
-#    """
-#    Saves the chat history to a file, including details for each entry.
-#    """
-#    current_time = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-#    file_nametime = f"{file_name}_{current_time}.txt"
-#
-#    with open(file_nametime, 'w') as file:
-#        for entry in chat_history:
-#            timestamp = entry.get('timestamp', 'No timestamp')
-#            role = entry.get('role', 'No role')
-#            token_count = entry.get('token_count', 'N/A')
-#            last_key = entry.get('last_key', 'N/A')
-#            mouse_position = entry.get('mouse_position', 'N/A')
-#            last_command = entry.get('last_command', 'N/A')
-#
-#            content = entry.get('content', {})
-#            message = 'No content'
-#
-#            if isinstance(content, dict):
-#                content_type = content.get('type')
-#                if content_type == 'text':
-#                    message = content.get('text', 'No text content')
-#                if content_type == 'image':
-#                    image_data = content.get('data', '')
-#                    message = f"Image Data: {image_data}" if image_data else "Image Data: Missing or empty 'data' key"
-#                else:
-#                    message = f'[Other content type: {content_type}]'
-#
-#            file.write(f"{timestamp} - {role}: {message}\n\n")
-#            file.write(f"Token Count: {token_count}, Last Key: {last_key}, Mouse Position: {mouse_position}, Last Command: {last_command}\n")
-#
-#    print(f"Chat history saved to {file_nametime}")
 
 def save_chat_history_to_file(chat_history, file_name):
     current_time = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
@@ -1624,6 +2218,74 @@ def display_message(role, content, token_count=None, include_command=False):
     print(f"{role_prefix}: {formatted_content}{token_count_str}")
 
 
+command_dispatch = {
+    'TOGGLE_POWER_WORD': toggle_power_word,
+    'INIT': init_command,
+    'PIN': pin_command,
+    'ADD_GOAL': add_goal_command,
+    'ADD_APRIORITY_GOAL': add_apriority_goal_command,
+    'UPDATE_INVENTORY': update_inventory_command,
+    'UPDATE_PARTY': update_party_command,
+    'UPDATE_CONTEXT': update_context_command,
+    'COMPLETE_GOAL': complete_goal_command,
+    'tasks': tasks_command,
+    'HELP': help_command,
+    'SAVE_TASKS': save_tasks_command,
+    'LOAD_TASKS': load_tasks_command,
+    'CLEAR_NOPIN%': clear_nopin_percentage_command,
+    'CLEAR%': clear_percentage_command,
+    'CLEAR': clear_all_command,
+    'EDIT_MSGS': edit_msgs_command,
+    'DELETE_MSG': delete_msg_command,
+    'SAVECH': save_chat_history_command,
+    'DHISTORY': display_history_command,
+    'SAVE_PINS': save_pins_command,
+    'SAVE_ALL_PINS': save_all_pins_command,
+    'TOGGLE_AUTO_PROMPT': toggle_auto_prompt_command,
+    'TOGGLE_ALWAYS': toggle_always_command,
+    'TOGGLE_IMAGE_DETAIL': toggle_image_detail_command,
+    'TOGGLE_LATEST_IMAGE_DETAIL': toggle_latest_image_detail_command,
+    'SET_HIGH_DETAIL': set_high_detail_command,
+    'SET_MAX_IMAGES_IN_HISTORY': set_max_images_in_history_command,
+    'SET_IMAGE_DETAIL': set_image_detail_command,
+    'SET_LATEST_IMAGE_DETAIL': set_latest_image_detail_command,
+    'HIDE_USER_TEXT': hide_user_text_command,
+    'HIDE_AI_TEXT': hide_ai_text_command,
+    'HIDE_AI_COMMANDS': hide_ai_commands_command,
+    'HIDE_USER_COMMANDS': hide_user_commands_command,
+    'TOGGLE_UMSGS': toggle_unimportant_messages_command,
+    'TOGGLE_IMSGS': toggle_important_messages_command,
+    'TOGGLE_ADD_UMSGS_TO_HISTORY': toggle_add_umsgs_to_history_command,
+    'TOGGLE_ADD_IMSGS_TO_HISTORY': toggle_add_imsgs_to_history_command,
+    'TOGGLE_UMSGS_DECAY_CHECK': toggle_umsgs_decay_check_command,
+    'TOGGLE_IMSGS_DECAY_CHECK': toggle_imsgs_decay_check_command,
+    # Include any other command mappings as needed
+}
+
+
+# PyAutoGUI Command Dispatch Dictionary
+pyautogui_dispatch = {
+    'press': pyautogui_press,
+    'hold': pyautogui_hold,
+    'move_key': move_key_command,
+    'move': pyautogui_move,
+    'drag': pyautogui_drag,
+    'scroll_up': pyautogui_scroll_up,
+    'scroll_down': pyautogui_scroll_down,
+    'release': pyautogui_release,
+    'hotkey': pyautogui_hotkey,
+    'type': pyautogui_type,
+    'multi_press': pyautogui_multi_press,
+    'multi_hold': pyautogui_multi_hold,
+    'multi_release': pyautogui_multi_release,
+    'click': pyautogui_click,
+    'leftclick': pyautogui_click,  # Alias for click
+    'doubleclick': pyautogui_double_click,
+    'hold_click': pyautogui_hold_click,
+    'screenshot': pyautogui_screenshot,
+    # Include any other pyautogui command mappings as needed
+}
+
 class ChatMessage:
     def __init__(self, role, content, token_count, timestamp, file_id=None, image_path=None, last_command=None, mouse_position=None, last_key=None):
         global userName, aiName
@@ -1673,41 +2335,6 @@ def count_tokens_in_history(chat_history):
 
 
 
-def initiate_and_handoff():
-    global init_handoff_in_progress
-    init_handoff_in_progress = True
-
-    try:
-        # Check if the init prompt is already in the chat history
-        if not any(entry['content'].startswith(f'Pinned Init summary: {init_prompt}') for entry in chat_history):
-            timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-           # init_message = f'Pinned Init summary: {init_prompt}'
-            # Update the chat history with the init message and the Init exemption
-            #update_chat_history("system", init_message, exemption='Init')
-            response_text = send_prompt_to_chatgpt(init_prompt, role="system", exemption='Init')
-            # Optionally process the response_text further as needed
-    except openai.error.InvalidRequestError as e:
-        print(f"Error during initiation: {e}")
-
-
-
-    init_handoff_in_progress = False
-    handoff_to_chatgpt()
-
-def handoff_to_chatgpt():
-    while hbuffer:
-        try:
-            handoff_prompt = hbuffer.pop(0)  # Using a queue mechanism to prevent potential infinite loops
-            response_text = send_prompt_to_chatgpt(handoff_prompt)
-            send_prompt_to_chatgpt(response_text)
-        except openai.error.InvalidRequestError as e:
-            print(f"Error during handoff: {e}")
-        if any(entry['content'].startswith(f'Pinned Handoff context: {handoff_prompt}') for entry in chat_history):
-            print("Handoff summary already in chat history.")
-            return
-
-    
-
 
 
 
@@ -1750,33 +2377,6 @@ def clear_chat_history(percentage):
     print(f"Chat history cleared, {int(percentage*100)}% chats are removed, only most recent {num_chats_to_keep} entries, pinned summaries, and exemptions remain.")
 
 
-
-
-##def save_chat_history_to_file_old():
- #   """
- #   Save the current chat history to a file.
- #   The filename will be formatted as 'chat_history_PrimaryAIName_date_time.txt',
- #   where 'PrimaryAIName' is replaced with the name of the primary AI,
- #   'date' is replaced with the current date, and 'time' is replaced with the current time.
- #   """
- #   # Get the current date and time
- #   now = datetime.datetime.now()
- #   
- #   # Format the date and time as strings
- #   date_str = now.strftime('%Y-%m-%d')
- #   time_str = now.strftime('%H-%M-%S')
- #   
- #   # Create the filename
- #   filename = f"chat_history_Aurora_{date_str}_{time_str}.txt"
- #   
- #   # Write the chat history to the file
- #   with open(filename, 'w') as file:
- #       for entry in chat_history:
- #           role = entry['role']
- #           content = entry['content']
- #           file.write(f"{role}: {content}\n")
- #               
- #   print(f"Chat history saved to {filename}")
 
 def check_and_save_chat_history():
     """
@@ -1968,63 +2568,6 @@ def listen_to_keyboard():
 
 
 
-## Function to add a grid with labeled coordinates
-#def add_grid_to_screenshot(image, grid_interval):
-#    draw = ImageDraw.Draw(image)
-#
-#    # Customize the font size
-#    font_size = 23
-#
-#    # Load a TrueType font with the specified size
-#    try:
-#        font = ImageFont.truetype(FONT_PATH, font_size)
-#    except IOError:
-#        print("Font file not found. Falling back to default font.")
-#        font = ImageFont.load_default()  # Fallback to default font if TrueType font not found
-#
-#    # Draw the grid and label intersections
-#    for x in range(0, screen_width, grid_interval):
-#        for y in range(0, screen_height, grid_interval):
-#            draw.line([(x, 0), (x, screen_height)], fill="blue")
-#            draw.line([(0, y), (screen_width, y)], fill="blue")
-#            coordinate_label = f"{x},{y}"
-#            #draw.text((x + 2, y), coordinate_label, fill="red", font=font)
-#            #draw_text_with_background(draw, (x + 5, y - 15), coordinate_label, font)
-
-# Function to add a dot grid with labeled coordinates
-#def add_grid_to_screenshot2(image, grid_interval):
-#    print("Starting add_grid_to_screenshot2 function")
-#    draw = ImageDraw.Draw(image)
-#
-#    # Customize the font size
-#    font_size = 23
-#
-#    # Load a TrueType font with the specified size
-#    try:
-#        font = ImageFont.truetype(FONT_PATH, font_size)
-#    except IOError:
-#        print("Font file not found. Falling back to default font.")
-#        font = ImageFont.load_default()  # Fallback to default font if TrueType font not found
-#
-#    screen_width, screen_height = image.size
-#
-#    # Define key points to label
-#    key_points = [
-#        (150, 150), (450, 150), (150, 450), (450, 450),
-#        (900, 150), (1200, 150), (900, 450), (1200, 450),
-#        (600, 750), (1050, 750), (1350, 300), (1350, 600),
-#         (1350, 750), (750, 300)
-#    ]
-#
-#    # Draw dots and coordinates with background boxes on the top row, left column, and key points
-#    # Draw larger dots and coordinates with background boxes on the top row, left column, and key points
-#    for x in range(0, screen_width, grid_interval):
-#        for y in range(0, screen_height, grid_interval):
-#            draw.ellipse((x-4, y-4, x+4, y+4), fill="red", outline="red")  # Draw the larger dot
-#            if (x == 0 or y == 0) or (x, y) in key_points:  # Top row, left column, or key points
-#                coordinate_label = f"{x},{y}"
-#                draw_text_with_background(draw, (x + 5, y - 15), coordinate_label, font, background_opacity=128, shift_x=5, shift_y=20)
-#    print("Finished add_grid_to_screenshot2 function")
 
 
 # Function to add a grid with color-coded tiles and labeled coordinates
@@ -2034,6 +2577,7 @@ def listen_to_keyboard():
 def add_colored_tile_grid_v3(image, center_tile, tile_size, colors_x, colors_y):
     
     draw = ImageDraw.Draw(image)
+    
         # Calculate half-tile offsets for proper grid alignment
     half_tile_offset = (tile_size[0] // 2, tile_size[1] // 2)
     # Apply a half-tile shift to center the grid
@@ -2063,57 +2607,7 @@ def add_colored_tile_grid_v3(image, center_tile, tile_size, colors_x, colors_y):
                 draw_text_with_background(draw, (tile_x + 5, tile_y - 15), label, font)
 
 
-#def add_grid_to_screenshot3p0(image, grid_interval, center_tile, tile_size, colors_x, colors_y):
-#    print("Starting add_grid_to_screenshot2 function")
-#    draw = ImageDraw.Draw(image)
-#
-#    # Customize the font size
-#    font_size = 23
-#
-#    # Load a TrueType font with the specified size
-#    try:
-#        font = ImageFont.truetype(FONT_PATH, font_size)
-#    except IOError:
-#        print("Font file not found. Falling back to default font.")
-#        font = ImageFont.load_default()  # Fallback to default font if TrueType font not found
-#
-#    screen_width, screen_height = image.size
-#
-#    # Calculate half-tile offsets for proper grid alignment
-#    half_tile_offset = (tile_size[0] // 2, tile_size[1] // 2)
-#    
-#    # Apply a half-tile shift to center the grid
-#    x_offset = -half_tile_offset[0]
-#    y_offset = -half_tile_offset[1]
-#
-#    # Loop through the grid around the center tile, applying the colors based on X and Y distance
-#    for i in range(-5, 6):  # Adjust the range as necessary for the grid size
-#        for j in range(-5, 6):
-#            # Calculate the position of the current tile with offsets for the half-tile shift
-#            tile_x = center_tile[0] + i * tile_size[0] + x_offset
-#            tile_y = center_tile[1] + j * tile_size[1] + y_offset
-#
-#            # Determine the color based on the X and Y distance from the center
-#            color_x = colors_x[min(abs(i), len(colors_x) - 1)]  # Use column color (X axis) for sides
-#            color_y = colors_y[min(abs(j), len(colors_y) - 1)]  # Use row color (Y axis) for top/bottom
-#
-#            # Draw the tile with the appropriate colors (colored borders based on X/Y distance)
-#            draw_tile_with_colors(draw, tile_x, tile_y, tile_size, color_x, color_y)
-#
-#            # Optionally, label the grid coordinates if you want
-#            coordinate_label = f"{tile_x},{tile_y}"
-#            draw_text_with_background(draw, (tile_x + 5, tile_y - 15), coordinate_label, font)
-#
-#    print("Finished add_grid_to_screenshot2 function")
 
-#def draw_tile_with_colors(draw, x, y, tile_size, color_x, color_y):
-#    # Draw the floor (left and right) for the column (X)
-#    draw.line([(x, y), (x, y + tile_size[1])], fill=color_x, width=5)  # Left (floor)
-#    draw.line([(x + tile_size[0], y), (x + tile_size[0], y + tile_size[1])], fill=color_x, width=5)  # Right (ceiling)
-#    
-#    # Draw the top and bottom for the row (Y)
-#    draw.line([(x, y), (x + tile_size[0], y)], fill=color_y, width=5)  # Top
-#    draw.line([(x, y + tile_size[1]), (x + tile_size[0], y + tile_size[1])], fill=color_y, width=5)  # Bottom
 # Helper function to draw the tiles with X/Y axis colors
 def draw_tile_with_colors(draw, x, y, tile_size, color_x, color_y):
     # Draw the left and right borders (X axis)
@@ -2125,7 +2619,72 @@ def draw_tile_with_colors(draw, x, y, tile_size, color_x, color_y):
     draw.line([(x, y + tile_size[1]), (x + tile_size[0], y + tile_size[1])], fill=color_y, width=3)  # Bottom
 
 
-def draw_cursor(draw, cursor_position, cursor_size):
+#def draw_cursor(draw, cursor_position, cursor_size):
+#    # Define colors
+#    outer_color = "black"
+#    inner_color = "white"
+#    large_circle_color = "red"
+#    medium_circle_color = "red"
+#    small_circle_color = "blue"
+#
+#    # Outer rectangle (black outline)
+#    outer_rectangle = [cursor_position.x - 1, cursor_position.y - 1, cursor_position.x + cursor_size + 1, cursor_position.y + cursor_size + 1]
+#    draw.rectangle(outer_rectangle, outline=outer_color, fill=outer_color)
+#
+#    # Inner rectangle (white cursor)
+#    inner_rectangle = [cursor_position.x, cursor_position.y, cursor_position.x + cursor_size, cursor_position.y + cursor_size]
+#    draw.rectangle(inner_rectangle, outline=inner_color, fill=inner_color)
+#
+#    # Draw an 'X' inside the rectangle
+#    draw.line([cursor_position.x, cursor_position.y, cursor_position.x + cursor_size, cursor_position.y + cursor_size], fill=outer_color)
+#    draw.line([cursor_position.x, cursor_position.y + cursor_size, cursor_position.x + cursor_size, cursor_position.y], fill=outer_color)
+#
+#    # Draw the red circle around the cursor
+#    large_radius = cursor_size + 3  # Adjust the radius as needed
+#    large_circle_bounds = [cursor_position.x - large_radius, cursor_position.y - large_radius, cursor_position.x + cursor_size + large_radius, cursor_position.y + cursor_size + large_radius]
+#    draw.ellipse(large_circle_bounds, outline=large_circle_color, width=2)
+#
+#    # Calculate the center of the square
+#    center_x = cursor_position.x + cursor_size / 2
+#    center_y = cursor_position.y + cursor_size / 2
+#
+#    # Draw the medium red circle that the box fits into perfectly
+#    medium_radius = (cursor_size / 2) * (2 ** 0.5)  # sqrt(2) times the half size of the square
+#    medium_circle_bounds = [center_x - medium_radius, center_y - medium_radius, center_x + medium_radius, center_y + medium_radius]
+#    draw.ellipse(medium_circle_bounds, outline=medium_circle_color, width=2)
+#
+#    # Draw the smaller blue circle that circumscribes the square reticle
+#    small_radius = cursor_size / 2
+#    small_circle_bounds = [center_x - small_radius, center_y - small_radius, center_x + small_radius, center_y + small_radius]
+#    draw.ellipse(small_circle_bounds, outline=small_circle_color, width=2)
+#
+#    # Add cursor coordinates with background
+#    screen_width, screen_height = draw.im.size
+#    text_color = "white"
+#    background_color = (0, 128, 0)  # Greenish background color
+#    background_opacity = 128
+#
+#    # Customize the font size
+#    font_size = 23
+#    # Load a TrueType font with the specified size
+#    try:
+#        font = ImageFont.truetype(FONT_PATH, font_size)
+#    except IOError:
+#        print("Font file not found. Falling back to default font.")
+#        font = ImageFont.load_default()  # Fallback to default font if TrueType font not found
+#
+#    # Calculate position for text
+#    shift_x, shift_y = 5, 20
+#    text_position = (cursor_position.x + shift_x, cursor_position.y + shift_y)
+#    if cursor_position.x + shift_x + 100 > screen_width:
+#        shift_x = -100  # Adjust shift to place text on the left
+#    if cursor_position.y + shift_y + 20 > screen_height:
+#        shift_y = -30  # Adjust shift to place text above
+#
+#    cursor_text = f"({cursor_position.x}, {cursor_position.y})"
+#    draw_text_with_background(draw, text_position, cursor_text, font, text_color, background_color, background_opacity, shift_x, shift_y)
+
+def draw_custom_cursor(draw, cursor_position, cursor_size):
     # Define colors
     outer_color = "black"
     inner_color = "white"
@@ -2134,115 +2693,78 @@ def draw_cursor(draw, cursor_position, cursor_size):
     small_circle_color = "blue"
 
     # Outer rectangle (black outline)
-    outer_rectangle = [cursor_position.x - 1, cursor_position.y - 1, cursor_position.x + cursor_size + 1, cursor_position.y + cursor_size + 1]
+    outer_rectangle = [
+        cursor_position.x - 1,
+        cursor_position.y - 1,
+        cursor_position.x + cursor_size + 1,
+        cursor_position.y + cursor_size + 1
+    ]
     draw.rectangle(outer_rectangle, outline=outer_color, fill=outer_color)
 
     # Inner rectangle (white cursor)
-    inner_rectangle = [cursor_position.x, cursor_position.y, cursor_position.x + cursor_size, cursor_position.y + cursor_size]
+    inner_rectangle = [
+        cursor_position.x,
+        cursor_position.y,
+        cursor_position.x + cursor_size,
+        cursor_position.y + cursor_size
+    ]
     draw.rectangle(inner_rectangle, outline=inner_color, fill=inner_color)
 
     # Draw an 'X' inside the rectangle
-    draw.line([cursor_position.x, cursor_position.y, cursor_position.x + cursor_size, cursor_position.y + cursor_size], fill=outer_color)
-    draw.line([cursor_position.x, cursor_position.y + cursor_size, cursor_position.x + cursor_size, cursor_position.y], fill=outer_color)
+    draw.line(
+        [
+            (cursor_position.x, cursor_position.y),
+            (cursor_position.x + cursor_size, cursor_position.y + cursor_size)
+        ],
+        fill=outer_color
+    )
+    draw.line(
+        [
+            (cursor_position.x, cursor_position.y + cursor_size),
+            (cursor_position.x + cursor_size, cursor_position.y)
+        ],
+        fill=outer_color
+    )
 
-    # Draw the red circle around the cursor
-    large_radius = cursor_size + 3  # Adjust the radius as needed
-    large_circle_bounds = [cursor_position.x - large_radius, cursor_position.y - large_radius, cursor_position.x + cursor_size + large_radius, cursor_position.y + cursor_size + large_radius]
-    draw.ellipse(large_circle_bounds, outline=large_circle_color, width=2)
-
-    # Calculate the center of the square
+    # Draw the red circles
     center_x = cursor_position.x + cursor_size / 2
     center_y = cursor_position.y + cursor_size / 2
 
-    # Draw the medium red circle that the box fits into perfectly
-    medium_radius = (cursor_size / 2) * (2 ** 0.5)  # sqrt(2) times the half size of the square
-    medium_circle_bounds = [center_x - medium_radius, center_y - medium_radius, center_x + medium_radius, center_y + medium_radius]
+    large_radius = cursor_size + 3
+    large_circle_bounds = [
+        center_x - large_radius,
+        center_y - large_radius,
+        center_x + large_radius,
+        center_y + large_radius
+    ]
+    draw.ellipse(large_circle_bounds, outline=large_circle_color, width=2)
+
+    medium_radius = (cursor_size / 2) * (2 ** 0.5)
+    medium_circle_bounds = [
+        center_x - medium_radius,
+        center_y - medium_radius,
+        center_x + medium_radius,
+        center_y + medium_radius
+    ]
     draw.ellipse(medium_circle_bounds, outline=medium_circle_color, width=2)
 
-    # Draw the smaller blue circle that circumscribes the square reticle
     small_radius = cursor_size / 2
-    small_circle_bounds = [center_x - small_radius, center_y - small_radius, center_x + small_radius, center_y + small_radius]
+    small_circle_bounds = [
+        center_x - small_radius,
+        center_y - small_radius,
+        center_x + small_radius,
+        center_y + small_radius
+    ]
     draw.ellipse(small_circle_bounds, outline=small_circle_color, width=2)
 
-    # Add cursor coordinates with background
-    screen_width, screen_height = draw.im.size
-    text_color = "white"
-    background_color = (0, 128, 0)  # Greenish background color
-    background_opacity = 128
+def draw_cursor(draw, cursor_position, cursor_size, native_cursor=False, font=None):
+    if not native_cursor:
+        # Draw the custom cursor
+        draw_custom_cursor(draw, cursor_position, cursor_size)
+    
+    # Always draw the cursor coordinates label
+    draw_cursor_label(draw, cursor_position, font)
 
-    # Customize the font size
-    font_size = 23
-    # Load a TrueType font with the specified size
-    try:
-        font = ImageFont.truetype(FONT_PATH, font_size)
-    except IOError:
-        print("Font file not found. Falling back to default font.")
-        font = ImageFont.load_default()  # Fallback to default font if TrueType font not found
-
-    # Calculate position for text
-    shift_x, shift_y = 5, 20
-    text_position = (cursor_position.x + shift_x, cursor_position.y + shift_y)
-    if cursor_position.x + shift_x + 100 > screen_width:
-        shift_x = -100  # Adjust shift to place text on the left
-    if cursor_position.y + shift_y + 20 > screen_height:
-        shift_y = -30  # Adjust shift to place text above
-
-    cursor_text = f"({cursor_position.x}, {cursor_position.y})"
-    draw_text_with_background(draw, text_position, cursor_text, font, text_color, background_color, background_opacity, shift_x, shift_y)
-
-#def draw_text_with_background(draw, position, text, font, text_color="white", background_color="black", background_opacity=58, shift_x=5, shift_y=20):
-#    # Calculate text size
-#    text_size = draw.textsize(text, font=font)
-#    
-#    # Set padding around the text
-#    padding = 4
-#
-#    # Define the background rectangle position with shift
-#    background_position = (
-#        position[0] - padding + shift_x,
-#        position[1] - padding + shift_y,
-#        position[0] + text_size[0] + padding + shift_x,
-#        position[1] + text_size[1] + padding + shift_y
-#    )
-#
-#    # Draw the background rectangle directly on the draw object with transparency
-#    draw.rectangle(background_position, fill=(0, 0, 0, background_opacity))
-#
-#    # Draw the text over the background rectangle
-#    draw.text((position[0] + shift_x, position[1] + shift_y), text, fill=text_color, font=font)
-
-#def draw_text_with_background(draw, position, text, font, text_color="white", background_color=(0, 0, 0), background_opacity=128, shift_x=5, shift_y=20):
-#    # Calculate text size using textbbox
-#    text_bbox = draw.textbbox(position, text, font=font)
-#    text_width = text_bbox[2] - text_bbox[0]
-#    text_height = text_bbox[3] - text_bbox[1]
-#    
-#    # Set padding around the text
-#    padding = 4
-#
-#    # Define the background rectangle position with shift
-#    background_position = (
-#        position[0] - padding + shift_x,
-#        position[1] - padding + shift_y,
-#        position[0] + text_width + padding + shift_x,
-#        position[1] + text_height + padding + shift_y
-#    )
-
-    # Create a transparent image for the background
-#    background_image = Image.new('RGBA', draw.im.size, (0, 0, 0, 0))
-#    background_draw = ImageDraw.Draw(background_image)
-#    background_color_with_opacity = (background_color[0], background_color[1], background_color[2], background_opacity)
-#    background_draw.rectangle(background_position, fill=background_color_with_opacity)
-#
-#    # Extract the alpha channel from the background image
-#    alpha = background_image.split()[3]
-#
-#    # Composite the transparent background onto the original image using paste with a mask
-#    bounding_box = (0, 0, draw.im.size[0], draw.im.size[1])
-#    draw.im.paste(background_image.im, bounding_box, alpha.im)
-#
-#    # Draw the text over the background rectangle
-#    draw.text((position[0] + shift_x, position[1] + shift_y), text, fill=text_color, font=font)
 # Helper function to draw text with background
 def draw_text_with_background(draw, position, text, font, text_color="white", background_color=(0, 0, 0), background_opacity=128, shift_x=5, shift_y=20):
     # Calculate text size
@@ -2277,6 +2799,26 @@ def draw_text_with_background(draw, position, text, font, text_color="white", ba
     # Draw the text over the background rectangle
     draw.text((position[0] + shift_x, position[1] + shift_y), text, fill=text_color, font=font)
 
+def draw_cursor_label(draw, cursor_position, font, shift_x=5, shift_y=20):
+    text_color = "white"
+    background_color = (0, 128, 0)  # Greenish background
+    background_opacity = 128
+
+    cursor_text = f"({cursor_position.x}, {cursor_position.y})"
+    text_position = (cursor_position.x + shift_x, cursor_position.y + shift_y)
+
+    draw_text_with_background(
+        draw,
+        text_position,
+        cursor_text,
+        font,
+        text_color,
+        background_color,
+        background_opacity,
+        shift_x,
+        shift_y
+    )    
+
 # Function to add a dot grid with labeled coordinates
 def add_dot_grid_with_labels(image, grid_interval, key_points):
     draw = ImageDraw.Draw(image)
@@ -2295,10 +2837,7 @@ def add_dot_grid_with_labels(image, grid_interval, key_points):
 
 # Function to add grids, tiles, and labels
 def add_grids_and_labels(screenshot, cursor_position, current_last_key):
-    # Continue with your grid and tile drawing
-    add_colored_tile_grid_v3(screenshot, center_tile=(719, 444), tile_size=(162, 98),
-                             colors_x=['blue', 'red', 'orange', 'yellow', 'purple', 'black'],
-                             colors_y=['blue', 'red', 'orange', 'yellow', 'purple', 'black'])
+    draw = ImageDraw.Draw(screenshot)  # This creates the 'draw' object to work with the screenshot
 
     add_dot_grid_with_labels(screenshot, grid_interval=150, key_points=[
         (150, 150), (300, 750), (450, 150), 
@@ -2306,6 +2845,13 @@ def add_grids_and_labels(screenshot, cursor_position, current_last_key):
         (1050, 750), (1350, 300), (1350, 600),
         (1350, 750)
     ])
+
+    if enable_colored_tile_grid:
+        # Continue with your grid and tile drawing
+        add_colored_tile_grid_v3(screenshot, center_tile=(719, 444), tile_size=(162, 98),
+                                 colors_x=['blue', 'red', 'orange', 'yellow', 'purple', 'black'],
+                                 colors_y=['blue', 'red', 'orange', 'yellow', 'purple', 'black'])
+
 
     # Customize the font size
     font_size = 23
@@ -2319,6 +2865,7 @@ def add_grids_and_labels(screenshot, cursor_position, current_last_key):
     text_position = (40, 55)  # Position of the text
     text_info = f"Cursor Position: {cursor_position} | Last Key: {current_last_key} | Timestamp: {image_timestamp}"
     draw_text_with_background(draw, text_position, text_info, font, background_opacity=128, shift_x=5, shift_y=20)
+
 
 # Function to handle sending the screenshot and user input
 def handle_queued_input(screenshot_file_path, image_timestamp):
@@ -2336,133 +2883,7 @@ def handle_queued_input(screenshot_file_path, image_timestamp):
         send_prompt_to_chatgpt("System: Screenshot taken. Please provide instructions...", role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
 
 
-   # if queued_user_input:
-   #     prompt = f"user input: {queued_user_input}"
-   #     send_prompt_to_chatgpt(prompt, role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
-   #     queued_user_input = None
-   # else:
-   #     send_prompt_to_chatgpt("System: Screenshot taken. Please provide instructions...", role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
-#def take_screenshotOld():
-#    global last_key  # Ensure you are referring to the global variable updated by the listener thread
-#    global image_timestamp
-#    global queued_user_input
-#
-#
-#    
-#    # Check if the third option for pyautogui native screenshot is enabled
-#    if screenshot_options.get("native_cursor_screenshot"):
-#        # Capture entire screen with cursor using pyautogui.screenshot()
-#        screenshot = pyautogui.screenshot()
-#
-#        # Get the mouse cursor's current position
-#        cursor_position = pyautogui.position()
-#
-#        # Ensure thread-safe access to `last_key`
-#        with lock:
-#            current_last_key = last_key
-#
-#        # Draw additional elements if needed
-#        draw = ImageDraw.Draw(screenshot)
-#        draw_cursor(draw, cursor_position, cursor_size)  # Optional custom cursor drawing
-#
-#        # Add grid, tiles, and text like before
-#        add_grids_and_labels(screenshot, cursor_position, current_last_key)
-#
-#
-#    if screenshot_options["current_window"]:
-#        # Code to capture the current window snapshot
-#        # Depending on the platform, you might need additional libraries and code
-#        pass
-#    
-#    if screenshot_options["entire_screen"]:
-#        # Capture entire screen
-#        screenshot = ImageGrab.grab()
-#    
-#        # Get the mouse cursor's current position
-#        cursor_position = pyautogui.position()
-#
-#        # Use the global last_key variable instead of reading the event here
-#        with lock:  # Ensure thread-safe access to last_key
-#            current_last_key = last_key
-#
-#        # Draw a representation of the cursor on the screenshot
-#        draw = ImageDraw.Draw(screenshot)
-#
-#        
-#        # Draw the enhanced cursor
-#        draw_cursor(draw, cursor_position, cursor_size)
-#
-#        #draw.rectangle([cursor_position.x, cursor_position.y, cursor_position.x + cursor_size, cursor_position.y + cursor_size], outline="red")
-#
-#        current_time = datetime.datetime.now()
-#        image_timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S')
-#        timestamp = int(time.time())
-#        # You can also draw the cursor position and last key pressed on the screenshot for visibility
-#        text_position = (40, 55)  # Position of the text
-#        # Add the grid with labeled coordinates
-#        #add_grid_to_screenshot(screenshot, grid_interval=150)  # Set grid_interval as needed
-#        # Draw the grid with labeled coordinates
-#        text_info = f"Cursor Position: {cursor_position} | Last Key: {current_last_key} | Timestamp: {image_timestamp}"
-#
-#        # Add the colored tile grid with directional labels
-#        add_colored_tile_grid_v3(screenshot, center_tile=(719, 444), tile_size=(162, 98),
-#                                 colors_x=['blue', 'red', 'orange', 'yellow', 'purple', 'black'],
-#                                 colors_y=['blue', 'red', 'orange', 'yellow', 'purple', 'black'])
-#
-#        # Add the red dot grid with labels
-#     #   add_dot_grid_with_labels1111(screenshot, grid_interval=150, key_points=[
-#     #       (150, 150), (450, 150), (150, 450), (450, 450),
-#     #       (900, 150), (1200, 150), (900, 450), (1200, 450),
-#     #       (600, 750), (1050, 750), (1350, 300), (1350, 600),
-#     #       (1350, 750), (750, 300)
-#     #   ])
-#
-#        # Add the red dot grid with labels
-#        add_dot_grid_with_labels(screenshot, grid_interval=150, key_points=[
-#            (150, 150), (300, 750), (450, 150), 
-#            (900, 150), (1200, 150),
-#            (1050, 750), (1350, 300), (1350, 600),
-#            (1350, 750)
-#        ])
-#
-#        # Customize the font size
-#        font_size = 23
-#
-#        # Load a TrueType font with the specified size
-#        try:
-#            font = ImageFont.truetype(FONT_PATH, font_size)
-#        except IOError:
-#            print("Font file not found. Falling back to default font.")
-#            font = ImageFont.load_default()  # Fallback to default font if TrueType font not found
-#
-#        # Draw text with background
-#        draw_text_with_background(draw, text_position, text_info, font, background_opacity=128, shift_x=5, shift_y=20)
-#        #draw.text(text_position, f"Cursor Pos: {cursor_position} | Last Key: {current_last_key} | Timestamp: {image_timestamp} ", fill="white")
-#
-#        screenshot_file_path = f"{logging_folder}/{timestamp}.png"
-#        screenshot.save(screenshot_file_path)
-#        print(f"Screenshot Timestamp: {image_timestamp}")
-#        # Now, we send the prompt and include the screenshot file path
-#        #send_prompt_to_chatgpt("Here's a screenshot of my entire screen. Lets play Pokemon Blue in the VBA emulator. :3 We will play with individual button presses. Please simply reply to screenshots with only a command. VKPAG:click for example. If you need help, or have questions then ask away, but always be concise. with one or a short series set of individual button presses in response to each image. images will only update after a response is obtain from here. Display is 1920 X 1080 Landscape. ie click on folder/app called at mouse position x, y via move,x,y; leftclick; x,y select open keys in VBA emulator are Up: Up Arrow Please pretend like there is a parser listening for key commands and mouse commands the format from handle_commands of VKPAG:(PYAUTOGUI KEYBOARD/mouse commands, arguments);  VKPAG:hold_shift,1.5;move(100,200); rightClick(100,200); click(100,200)", screenshot_file_path)
-#        
-#        ##send_prompt_to_chatgpt("please respond with usually pyag: commands #notes structure ie at title screen or certain menues selections try  please use pyag:  ie pyag: press(a) #at title screen/to scroll dialog text boxes, please do not use press(a) with multiple commands in a single inference but multiple move commands ie pyag hold(u,0.5); pyag: hold(r, 1) is fine; or pyag: hold (moveKey,1) #one is duration; move keys are u for moving up, d for moving down, l for moving left, r for moving right; pyag: hold(r,1) to move right, or pyag: hold(l,1) to move left, or pyag: hold(u,1) to move up, or pyag hold(d,1) to move down; press a at title screen/to scroll dialog text boxes, or pyag: press (r) to face right, or pyag: press (l) to face left, or pyag: press (u) to face up, or pyag press (d) to face down,  #Notes: quotes aren't necessary around the key command and the keyboard a key happens to be the Gameboy a button and click won't do much except inside vba window focus on window '", role="user", image_path= screenshot_file_path, image_timestamp=image_timestamp)  #image_timestamp might be buggy
-#        
-#        #auto_prompt_response = send_prompt_to_chatgpt("meow ")
-#        #send_prompt_to_chatgpt(auto_prompt_response)
-#       # send_prompt_to_chatgpt("auto prompt:", screenshot_file_path)
-# # Include the queued user input when sending the screenshot
-#        if queued_user_input:
-#            # Update chat history with the queued input, but set an exemption flag so it won't be added again.
-#            update_chat_history("user", queued_user_input, exemption="queued")
-#
-#            # Send the input along with the screenshot, without adding it to the chat history again
-#
-#            prompt = f"user input: {queued_user_input}"  # Use your desired format for combining input and screenshot
-#            send_prompt_to_chatgpt(prompt, role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
-#            queued_user_input = None  # Clear the queued input after sending
-#        else:
-#            send_prompt_to_chatgpt("System: Screenshot taken. Please provide instructions for parser to execute actions and comment notes thoroughly for future self or to communicate to user or user input.", role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
-#    
+
     # Use the function and provide a path to save the screenshot
     #capture_screenshot_with_cursor_info('screenshot_info.png')
 # Function to take a screenshot
@@ -2471,13 +2892,40 @@ def take_screenshot():
     global image_timestamp
     global queued_user_input
 
+
+    # Initialize variables to None
+    cursor_image = None
+    cursor_position = None
+
     # Check if the third option for pyautogui native screenshot is enabled
     if screenshot_options.get("native_cursor_screenshot"):
         # Capture entire screen with cursor using pyautogui.screenshot()
-        screenshot = pyautogui.screenshot()
+        #screenshot = pyautogui.screenshot()
+        # Replace pyautogui.screenshot() with ImageGrab.grab()
+        screenshot = ImageGrab.grab()
+        print(f"Screenshot mode: {screenshot.mode}")
+        print(f"Cursor image mode: {cursor_image.mode if cursor_image else 'None'}")
+        if cursor_image is not None:
+            if cursor_image.mode != screenshot.mode:
+                cursor_image = cursor_image.convert(screenshot.mode)
+        else:
+            print("Cursor image is None.")
 
         # Get the mouse cursor's current position
-        cursor_position = pyautogui.position()
+        #cursor_position = pyautogui.position()
+
+        # Get the cursor image, hotspot, and position
+        cursor_image, hotspot, cursor_position = get_cursor()
+
+        if cursor_image is not None:
+            # Calculate where to paste the cursor image on the screenshot
+            x = cursor_position[0] - hotspot[0]
+            y = cursor_position[1] - hotspot[1]
+
+            # Paste the cursor image onto the screenshot with transparency
+            screenshot.paste(cursor_image, (x, y), cursor_image)
+        else:
+            print("Could not capture cursor image.")
 
         # Ensure thread-safe access to `last_key`
         with lock:
@@ -2489,7 +2937,14 @@ def take_screenshot():
 
         # Add grid, tiles, and text like before
         add_grids_and_labels(screenshot, cursor_position, current_last_key)
-
+        
+        # Draw cursor label only
+        draw = ImageDraw.Draw(screenshot)
+        try:
+            font = ImageFont.truetype(FONT_PATH, 23)
+        except IOError:
+            print("Font file not found. Falling back to default font.")
+            font = ImageFont.load_default()
     # First option: Capture current window (if implemented)
     elif screenshot_options["current_window"]:
         # Code to capture the current window snapshot
@@ -2499,7 +2954,10 @@ def take_screenshot():
     # Second option: Capture entire screen using ImageGrab
     elif screenshot_options["entire_screen"]:
         screenshot = ImageGrab.grab()
-
+        print(f"Screenshot mode: {screenshot.mode}")
+        print(f"Cursor image mode: {cursor_image.mode if cursor_image else 'None'}")
+        if cursor_image.mode != screenshot.mode:
+            cursor_image = cursor_image.convert(screenshot.mode)
         # Get the mouse cursor's current position
         cursor_position = pyautogui.position()
 
@@ -2524,6 +2982,44 @@ def take_screenshot():
 
     # Handle user input and send the screenshot
     handle_queued_input(screenshot_file_path, image_timestamp)
+
+
+def initiate_and_handoff():
+    global init_handoff_in_progress
+    init_handoff_in_progress = True
+
+    try:
+        # Check if the init prompt is already in the chat history
+        if not any(entry['content'].startswith(f'Pinned Init summary: {init_prompt}') for entry in chat_history):
+            timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+           # init_message = f'Pinned Init summary: {init_prompt}'
+            # Update the chat history with the init message and the Init exemption
+            #update_chat_history("system", init_message, exemption='Init')
+            send_prompt_to_chatgpt(init_prompt, role="system", exemption='Init')
+            # Optionally process the response_text further as needed
+    except openai.error.InvalidRequestError as e:
+        print(f"Error during initiation: {e}")
+
+
+
+    init_handoff_in_progress = False
+    #handoff_to_chatgpt()  #still need to work on this
+
+def handoff_to_chatgpt():
+    while hbuffer:
+        try:
+            handoff_prompt = hbuffer.pop(0)  # Using a queue mechanism to prevent potential infinite loops
+            response_text = send_prompt_to_chatgpt(handoff_prompt)
+            send_prompt_to_chatgpt(response_text)
+        except openai.error.InvalidRequestError as e:
+            print(f"Error during handoff: {e}")
+        if any(entry['content'].startswith(f'Pinned Handoff context: {handoff_prompt}') for entry in chat_history):
+            print("Handoff summary already in chat history.")
+            return
+
+    
+
+
 # Function to run the scheduled tasks
 def run_scheduled_tasks():
     while running:
@@ -2531,10 +3027,30 @@ def run_scheduled_tasks():
         time.sleep(1)
 
 # Read the init prompt from a file
-init_file = f"{character_name}_init.txt"
-with open(init_file, "r") as f:
-    init_prompt = f.read().strip()
+#init_file = f"{character_name}_init.txt"
+#with open(init_file, "r") as f:
+#    init_prompt = f.read().strip()
 
+if INIT_MODE == 'load':
+    # Load init prompt from the file
+    init_file = f"{character_name}_init.txt"
+    try:
+        with open(init_file, "r") as f:
+            init_prompt = f.read().strip()
+        print(f"Init prompt loaded from {init_file}")
+        initiate_and_handoff()
+    except FileNotFoundError:
+        print(f"Init file {init_file} not found. Proceeding without an init prompt.")
+elif INIT_MODE == 'test':
+    # Use the test init prompt
+    init_prompt = test_init_prompt
+    print("Using test init prompt.")
+    initiate_and_handoff()
+elif INIT_MODE == 'skip':
+    # Skip loading the init prompt
+    print("Skipping init prompt loading.")
+else:
+    print(f"Unknown INIT_MODE: {INIT_MODE}. Proceeding without an init prompt.")
 
 
 # Read the handoff summary from a file
@@ -2568,6 +3084,7 @@ running = True
 screenshot_options = {
     "current_window": True,
     "entire_screen": True,
+    "native_cursor_screenshot": True  # Set to True by default for native cursor screenshots
 }
 
 # Set up buffer and logging folder
@@ -2583,7 +3100,7 @@ if not os.path.exists(logging_folder):
 
 
 
-initiate_and_handoff()
+
 
 
 
