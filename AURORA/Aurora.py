@@ -89,7 +89,7 @@ INIT_MODE = 'test'  # Options: 'load', 'skip', 'test'
 test_init_prompt = "This is a test init prompt."
 
 init_prompt = ""  # Initialize to an empty string
-
+SEND_TO_MODEL = False  # Control sending text to the model
 # Load a TrueType font with the specified size
 
 # Customize the font size
@@ -109,15 +109,15 @@ hide_input = None
 global last_command
 last_command = None
 screen_width, screen_height = pyautogui.size()
-MAX_IMAGES_IN_HISTORY = 15  # Global variable for the maximum number of images to retain
+MAX_IMAGES_IN_HISTORY = 0  #was 15 Global variable for the maximum number of images to retain
 #image_detail =  "high"   # "low" or depending on your requirement
-image_detail =  "low"   # "high" or depending on your requirement
-latest_image_detail = "high"  # "high" for the latest image, "low" for older images
+image_detail =  "low"   #was low, "high" or depending on your requirement
+latest_image_detail = "low"  #was "high" for the latest image, "low" for older images
 # Define the High_Detail global variable
 global High_Detail
-High_Detail = 7  # Initialize to 0 or set as needed  pos for recent high detail, neg for last
+High_Detail = 0  #was 7  Initialize to 0 or set as needed  pos for recent high detail, neg for last
 global Recent_images_High
-Recent_images_High= 7
+Recent_images_High= 0 #was 7
 
 image_timestamp = None
 last_key = None  # Initialize the global variable
@@ -132,7 +132,7 @@ MAX_IMPORTANT_MESSAGES = 100  # Example value
 MAX_UNIMPORTANT_MESSAGES = 100  # Example value
 IMGS_DECAY = 9999 # Setting the default decay time to 3 minutes for important messages
 UMSGS_DECAY = 3.55 # Setting the default decay time to 3 minutes for unimportant messages
-time_interval = 6.5 # Time interval between screenshots (in seconds)
+time_interval = 1.35 # Time interval between screenshots (in seconds)
 
 cursor_size = 20  # Size of the cursor representation
 enable_human_like_click = True
@@ -195,7 +195,7 @@ def audio_callback(indata, frames, time_info, status):
     global queued_user_input
     volume_norm = np.linalg.norm(indata) * 10
 
-    if volume_norm < threshold:
+    if volume_norm < threshold and SEND_TO_MODEL:
         if len(audio_buffer) > sampling_rate * pause_duration:  
             if not ENABLE_MODEL_RESPONSES:
                 print("Model responses are disabled. Skipping Whisper API call.")
@@ -224,8 +224,12 @@ def audio_callback(indata, frames, time_info, status):
             # Assuming the transcribed text is in `response['text']`
             transcribed_text = response['text']
 
-            # Put the transcribed text into the queue
-            queued_user_input.put(transcribed_text)
+            # Check if sending text to model is enabled
+            if SEND_TO_MODEL:
+                # Put the transcribed text into the queue
+                queued_user_input.put(transcribed_text)
+            else:
+                print("Sending text to model is disabled. Ignoring transcribed text.")
 
             audio_buffer.clear()  
     else:
@@ -251,6 +255,11 @@ HICON = ctypes.c_void_p
 HBITMAP = ctypes.c_void_p
 HDC = ctypes.c_void_p
 HGDIOBJ = ctypes.c_void_p
+
+# Windows structures and constants (as before)
+class POINT(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_long),
+                ("y", ctypes.c_long)]
 
 # Define necessary Windows structures
 class CURSORINFO(ctypes.Structure):
@@ -315,8 +324,13 @@ class BITMAPINFO(ctypes.Structure):
 # Constants
 BI_RGB = 0
 DIB_RGB_COLORS = 0
-
+SRCCOPY = 0x00CC0020
 # Define the argument types and return types for the Windows API functions
+
+# For PatBlt
+ctypes.windll.gdi32.PatBlt.argtypes = [HDC, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.DWORD]
+ctypes.windll.gdi32.PatBlt.restype = wintypes.BOOL
+
 
 # For GetObjectW
 ctypes.windll.gdi32.GetObjectW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
@@ -358,59 +372,507 @@ ctypes.windll.gdi32.GetDIBits.argtypes = [
 ]
 ctypes.windll.gdi32.GetDIBits.restype = wintypes.INT
 
+# GetDC
+ctypes.windll.user32.GetDC.argtypes = [wintypes.HWND]
+ctypes.windll.user32.GetDC.restype = HDC
+
+# ReleaseDC
+ctypes.windll.user32.ReleaseDC.argtypes = [wintypes.HWND, HDC]
+ctypes.windll.user32.ReleaseDC.restype = wintypes.INT
+
+# CreateCompatibleDC
+ctypes.windll.gdi32.CreateCompatibleDC.argtypes = [HDC]
+ctypes.windll.gdi32.CreateCompatibleDC.restype = HDC
+
+# DeleteDC
+ctypes.windll.gdi32.DeleteDC.argtypes = [HDC]
+ctypes.windll.gdi32.DeleteDC.restype = wintypes.BOOL
+
+# CreateCompatibleBitmap
+ctypes.windll.gdi32.CreateCompatibleBitmap.argtypes = [HDC, ctypes.c_int, ctypes.c_int]
+ctypes.windll.gdi32.CreateCompatibleBitmap.restype = HBITMAP
+
+# SelectObject
+ctypes.windll.gdi32.SelectObject.argtypes = [HDC, HGDIOBJ]
+ctypes.windll.gdi32.SelectObject.restype = HGDIOBJ
+
+# DeleteObject
+ctypes.windll.gdi32.DeleteObject.argtypes = [HGDIOBJ]
+ctypes.windll.gdi32.DeleteObject.restype = wintypes.BOOL
+
+# DrawIconEx
+ctypes.windll.user32.DrawIconEx.argtypes = [HDC, ctypes.c_int, ctypes.c_int, HICON, ctypes.c_int, ctypes.c_int, ctypes.c_uint, wintypes.HBRUSH, ctypes.c_uint]
+ctypes.windll.user32.DrawIconEx.restype = wintypes.BOOL
+
+# SetBkMode
+ctypes.windll.gdi32.SetBkMode.argtypes = [HDC, ctypes.c_int]
+ctypes.windll.gdi32.SetBkMode.restype = ctypes.c_int
+
+# GetDIBits
+ctypes.windll.gdi32.GetDIBits.argtypes = [
+    HDC,             # hdc
+    HBITMAP,         # hbmp
+    wintypes.UINT,   # uStartScan
+    wintypes.UINT,   # cScanLines
+    ctypes.c_void_p, # lpvBits
+    ctypes.POINTER(BITMAPINFO),  # lpbi
+    wintypes.UINT    # uUsage
+]
+ctypes.windll.gdi32.GetDIBits.restype = wintypes.INT
+
+# GetCursorInfo
+ctypes.windll.user32.GetCursorInfo.argtypes = [ctypes.POINTER(CURSORINFO)]
+ctypes.windll.user32.GetCursorInfo.restype = wintypes.BOOL
+
+# GetIconInfo
+ctypes.windll.user32.GetIconInfo.argtypes = [HCURSOR, ctypes.POINTER(ICONINFO)]
+ctypes.windll.user32.GetIconInfo.restype = wintypes.BOOL
 
 
 # Initialize the lock for thread safety
 lock = threading.RLock()  #Rlock or lock here?
+
+#def get_cursor():
+#    # Initialize CURSORINFO
+#    cursor_info = CURSORINFO()
+#    cursor_info.cbSize = ctypes.sizeof(CURSORINFO)
+#    if not ctypes.windll.user32.GetCursorInfo(ctypes.byref(cursor_info)):
+#        return None, None, None
+#
+#    hicon = cursor_info.hCursor
+#    if not hicon:
+#        return None, None, None
+#
+#    # Get ICONINFO
+#    icon_info = ICONINFO()
+#    if not ctypes.windll.user32.GetIconInfo(hicon, ctypes.byref(icon_info)):
+#        return None, None, None
+#
+#    # Get cursor position
+#    x, y = cursor_info.ptScreenPos.x, cursor_info.ptScreenPos.y
+#
+#    # Get cursor hotspot
+#    hotspot = (icon_info.xHotspot, icon_info.yHotspot)
+#
+#    # Convert HBITMAP to PIL Image
+#    if icon_info.hbmColor:
+#        cursor_image = hbitmap_to_pil_image(icon_info.hbmColor)
+#    else:
+#        cursor_image = hbitmap_to_pil_image(icon_info.hbmMask)
+#        if cursor_image is not None:
+#            # Convert mask image to RGBA
+#            cursor_image = cursor_image.convert('RGBA')
+#            # Apply a default color, e.g., black
+#            cursor_image_data = cursor_image.getdata()
+#            new_data = []
+#            for item in cursor_image_data:
+#                if item == 0:
+#                    new_data.append((0, 0, 0, 0))  # Transparent
+#                else:
+#                    new_data.append((0, 0, 0, 255))  # Black
+#            cursor_image.putdata(new_data)
+#
+#    if cursor_image is None:
+#        return None, None, None
+#
+#    # Clean up GDI objects
+#    ctypes.windll.gdi32.DeleteObject(icon_info.hbmColor)
+#    ctypes.windll.gdi32.DeleteObject(icon_info.hbmMask)
+#
+#    return cursor_image, hotspot, (x, y)
+
+#def get_cursor():
+#    # Initialize CURSORINFO
+#    cursor_info = CURSORINFO()
+#    cursor_info.cbSize = ctypes.sizeof(CURSORINFO)
+#    if not ctypes.windll.user32.GetCursorInfo(ctypes.byref(cursor_info)):
+#        return None, None, None
+#
+#    hicon = cursor_info.hCursor
+#    if not hicon:
+#        return None, None, None
+#
+#    # Get cursor position
+#    x, y = cursor_info.ptScreenPos.x, cursor_info.ptScreenPos.y
+#
+#    # Get ICONINFO
+#    icon_info = ICONINFO()
+#    if not ctypes.windll.user32.GetIconInfo(hicon, ctypes.byref(icon_info)):
+#        return None, None, None
+#
+#    hotspot = (icon_info.xHotspot, icon_info.yHotspot)
+#
+#    # Get cursor size
+#    cursor_w = ctypes.windll.user32.GetSystemMetrics(13)  # SM_CXCURSOR = 13
+#    cursor_h = ctypes.windll.user32.GetSystemMetrics(14)  # SM_CYCURSOR = 14
+#
+#    # Create a compatible DC and bitmap
+#    hdc = ctypes.windll.user32.GetDC(None)
+#    if not hdc:
+#        print("GetDC failed.")
+#        return None, None, None
+#
+#    mem_dc = ctypes.windll.gdi32.CreateCompatibleDC(hdc)
+#    if not mem_dc:
+#        print("CreateCompatibleDC failed.")
+#        ctypes.windll.user32.ReleaseDC(None, hdc)
+#        return None, None, None
+#
+#    hbitmap = ctypes.windll.gdi32.CreateCompatibleBitmap(hdc, cursor_w, cursor_h)
+#    if not hbitmap:
+#        print("CreateCompatibleBitmap failed.")
+#        ctypes.windll.gdi32.DeleteDC(mem_dc)
+#        ctypes.windll.user32.ReleaseDC(None, hdc)
+#        return None, None, None
+#
+#    old_obj = ctypes.windll.gdi32.SelectObject(mem_dc, hbitmap)
+#    if not old_obj:
+#        print("SelectObject failed.")
+#        ctypes.windll.gdi32.DeleteObject(hbitmap)
+#        ctypes.windll.gdi32.DeleteDC(mem_dc)
+#        ctypes.windll.user32.ReleaseDC(None, hdc)
+#        return None, None, None
+#
+#    # Fill the background with transparency (optional)
+#    ctypes.windll.gdi32.SetBkMode(mem_dc, 1)  # TRANSPARENT
+#
+#    # Draw the cursor into the memory DC
+#    if not ctypes.windll.user32.DrawIconEx(
+#        mem_dc,
+#        0,
+#        0,
+#        hicon,
+#        cursor_w,
+#        cursor_h,
+#        0,
+#        None,
+#        0x0003  # DI_NORMAL
+#    ):
+#        print("DrawIconEx failed.")
+#        ctypes.windll.gdi32.SelectObject(mem_dc, old_obj)
+#        ctypes.windll.gdi32.DeleteObject(hbitmap)
+#        ctypes.windll.gdi32.DeleteDC(mem_dc)
+#        ctypes.windll.user32.ReleaseDC(None, hdc)
+#        return None, None, None
+#
+#    # Prepare bitmap info
+#    bmi = BITMAPINFO()
+#    bmi.bmiHeader.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+#    bmi.bmiHeader.biWidth = cursor_w
+#    bmi.bmiHeader.biHeight = -cursor_h  # Negative for top-down DIB
+#    bmi.bmiHeader.biPlanes = 1
+#    bmi.bmiHeader.biBitCount = 32
+#    bmi.bmiHeader.biCompression = BI_RGB
+#
+#    buf_size = cursor_w * cursor_h * 4
+#    buffer = (ctypes.c_byte * buf_size)()
+#
+#    res = ctypes.windll.gdi32.GetDIBits(
+#        mem_dc,
+#        hbitmap,
+#        0,
+#        cursor_h,
+#        buffer,
+#        ctypes.byref(bmi),
+#        DIB_RGB_COLORS
+#    )
+#    if res == 0:
+#        print("GetDIBits failed.")
+#        ctypes.windll.gdi32.SelectObject(mem_dc, old_obj)
+#        ctypes.windll.gdi32.DeleteObject(hbitmap)
+#        ctypes.windll.gdi32.DeleteDC(mem_dc)
+#        ctypes.windll.user32.ReleaseDC(None, hdc)
+#        return None, None, None
+#
+#    # Create PIL Image from buffer
+#    image = Image.frombuffer('RGBA', (cursor_w, cursor_h), buffer, 'raw', 'BGRA', 0, 1)
+#
+#    # Clean up
+#    ctypes.windll.gdi32.SelectObject(mem_dc, old_obj)
+#    ctypes.windll.gdi32.DeleteObject(hbitmap)
+#    ctypes.windll.gdi32.DeleteDC(mem_dc)
+#    ctypes.windll.user32.ReleaseDC(None, hdc)
+#    ctypes.windll.gdi32.DeleteObject(icon_info.hbmColor)
+#    ctypes.windll.gdi32.DeleteObject(icon_info.hbmMask)
+#
+#    return image, hotspot, (x, y)
 
 def get_cursor():
     # Initialize CURSORINFO
     cursor_info = CURSORINFO()
     cursor_info.cbSize = ctypes.sizeof(CURSORINFO)
     if not ctypes.windll.user32.GetCursorInfo(ctypes.byref(cursor_info)):
+        print("GetCursorInfo failed.")
         return None, None, None
 
     hicon = cursor_info.hCursor
-    if not hicon:
-        return None, None, None
+        # Get cursor position
+    x, y = cursor_info.ptScreenPos.x, cursor_info.ptScreenPos.y
+    cursor_position = (x, y)
 
-    # Get ICONINFO
-    icon_info = ICONINFO()
-    if not ctypes.windll.user32.GetIconInfo(hicon, ctypes.byref(icon_info)):
-        return None, None, None
+    if not hicon:
+        print("No cursor handle.")
+        return None, None, cursor_position
 
     # Get cursor position
     x, y = cursor_info.ptScreenPos.x, cursor_info.ptScreenPos.y
 
-    # Get cursor hotspot
-    hotspot = (icon_info.xHotspot, icon_info.yHotspot)
-
-    # Convert HBITMAP to PIL Image
-    if icon_info.hbmColor:
-        cursor_image = hbitmap_to_pil_image(icon_info.hbmColor)
-    else:
-        cursor_image = hbitmap_to_pil_image(icon_info.hbmMask)
-        if cursor_image is not None:
-            # Convert mask image to RGBA
-            cursor_image = cursor_image.convert('RGBA')
-            # Apply a default color, e.g., black
-            cursor_image_data = cursor_image.getdata()
-            new_data = []
-            for item in cursor_image_data:
-                if item == 0:
-                    new_data.append((0, 0, 0, 0))  # Transparent
-                else:
-                    new_data.append((0, 0, 0, 255))  # Black
-            cursor_image.putdata(new_data)
-
-    if cursor_image is None:
+    # Get ICONINFO to retrieve hotspot
+    icon_info = ICONINFO()
+    if not ctypes.windll.user32.GetIconInfo(hicon, ctypes.byref(icon_info)):
+        print("GetIconInfo failed.")
         return None, None, None
 
-    # Clean up GDI objects
+    hotspot = (icon_info.xHotspot, icon_info.yHotspot)
+
+    # Get cursor size
+    cursor_w = ctypes.windll.user32.GetSystemMetrics(13)  # SM_CXCURSOR = 13
+    cursor_h = ctypes.windll.user32.GetSystemMetrics(14)  # SM_CYCURSOR = 14
+
+    # Create a compatible DC and bitmap
+    hdcScreen = ctypes.windll.user32.GetDC(None)
+    hdcMem = ctypes.windll.gdi32.CreateCompatibleDC(hdcScreen)
+    hbmp = ctypes.windll.gdi32.CreateCompatibleBitmap(hdcScreen, cursor_w, cursor_h)
+    ctypes.windll.gdi32.SelectObject(hdcMem, hbmp)
+
+    # Fill the background with white color to ensure visibility
+    brush = ctypes.windll.gdi32.GetStockObject(0)  # WHITE_BRUSH = 0
+    rect = RECT(0, 0, cursor_w, cursor_h)
+    ctypes.windll.user32.FillRect(hdcMem, ctypes.byref(rect), brush)
+
+    # Draw the cursor into the memory DC
+    if not ctypes.windll.user32.DrawIconEx(
+        hdcMem,
+        0,
+        0,
+        hicon,
+        cursor_w,
+        cursor_h,
+        0,
+        None,
+        0x0003  # DI_NORMAL
+    ):
+        print("DrawIconEx failed.")
+        ctypes.windll.gdi32.DeleteObject(hbmp)
+        ctypes.windll.gdi32.DeleteDC(hdcMem)
+        ctypes.windll.user32.ReleaseDC(None, hdcScreen)
+        return None, None, None
+
+    # Prepare bitmap info
+    bmi = BITMAPINFO()
+    bmi.bmiHeader.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+    bmi.bmiHeader.biWidth = cursor_w
+    bmi.bmiHeader.biHeight = -cursor_h  # Negative for top-down DIB
+    bmi.bmiHeader.biPlanes = 1
+    bmi.bmiHeader.biBitCount = 32
+    bmi.bmiHeader.biCompression = BI_RGB
+
+    buf_size = cursor_w * cursor_h * 4
+    buffer = (ctypes.c_byte * buf_size)()
+
+    res = ctypes.windll.gdi32.GetDIBits(
+        hdcMem,
+        hbmp,
+        0,
+        cursor_h,
+        buffer,
+        ctypes.byref(bmi),
+        DIB_RGB_COLORS
+    )
+    if res == 0:
+        print("GetDIBits failed.")
+        ctypes.windll.gdi32.DeleteObject(hbmp)
+        ctypes.windll.gdi32.DeleteDC(hdcMem)
+        ctypes.windll.user32.ReleaseDC(None, hdcScreen)
+        return None, None, None
+
+    # Create PIL Image from buffer
+    image = Image.frombuffer('RGBA', (cursor_w, cursor_h), buffer, 'raw', 'BGRA', 0, 1)
+
+    # Clean up
+    ctypes.windll.gdi32.DeleteObject(hbmp)
+    ctypes.windll.gdi32.DeleteDC(hdcMem)
+    ctypes.windll.user32.ReleaseDC(None, hdcScreen)
     ctypes.windll.gdi32.DeleteObject(icon_info.hbmColor)
     ctypes.windll.gdi32.DeleteObject(icon_info.hbmMask)
 
-    return cursor_image, hotspot, (x, y)
+    # For debugging purposes, save the cursor image
+    # image.save('cursor_debug.png')
+
+    return image, hotspot, cursor_position
+
+
+# Define RECT structure
+class RECT(ctypes.Structure):
+    _fields_ = [
+        ('left', ctypes.c_long),
+        ('top', ctypes.c_long),
+        ('right', ctypes.c_long),
+        ('bottom', ctypes.c_long),
+    ]
+
+# Define FillRect function
+ctypes.windll.user32.FillRect.argtypes = [HDC, ctypes.POINTER(RECT), wintypes.HBRUSH]
+ctypes.windll.user32.FillRect.restype = ctypes.c_int
+
+# Define GetStockObject function
+ctypes.windll.gdi32.GetStockObject.argtypes = [ctypes.c_int]
+ctypes.windll.gdi32.GetStockObject.restype = wintypes.HGDIOBJ
+
+# Constants for stock objects
+WHITE_BRUSH = 0
+
+def hbitmap_to_pil_color_cursor(icon_info):
+    hdc = ctypes.windll.user32.GetDC(None)
+    mem_dc = ctypes.windll.gdi32.CreateCompatibleDC(hdc)
+    old_bitmap = ctypes.windll.gdi32.SelectObject(mem_dc, icon_info.hbmColor)
+
+    bmp = BITMAP()
+    ctypes.windll.gdi32.GetObjectW(icon_info.hbmColor, ctypes.sizeof(BITMAP), ctypes.byref(bmp))
+
+    bmi = BITMAPINFO()
+    bmi.bmiHeader.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+    bmi.bmiHeader.biWidth = bmp.bmWidth
+    bmi.bmiHeader.biHeight = -bmp.bmWidth  # Negative indicates top-down bitmap
+    bmi.bmiHeader.biPlanes = 1
+    bmi.bmiHeader.biBitCount = 32
+    bmi.bmiHeader.biCompression = BI_RGB
+
+    buf_size = bmp.bmWidth * bmp.bmHeight * 4
+    buffer = (ctypes.c_byte * buf_size)()
+
+    res = ctypes.windll.gdi32.GetDIBits(
+        mem_dc,
+        icon_info.hbmColor,
+        0,
+        bmp.bmHeight,
+        buffer,
+        ctypes.byref(bmi),
+        DIB_RGB_COLORS
+    )
+    if res == 0:
+        print("GetDIBits failed for color cursor.")
+        ctypes.windll.gdi32.SelectObject(mem_dc, old_bitmap)
+        ctypes.windll.gdi32.DeleteDC(mem_dc)
+        ctypes.windll.user32.ReleaseDC(None, hdc)
+        return None
+
+    image = Image.frombuffer('RGBA', (bmp.bmWidth, bmp.bmHeight), buffer, 'raw', 'BGRA', 0, 1)
+
+    ctypes.windll.gdi32.SelectObject(mem_dc, old_bitmap)
+    ctypes.windll.gdi32.DeleteDC(mem_dc)
+    ctypes.windll.user32.ReleaseDC(None, hdc)
+
+    return image
+
+def hbitmap_to_pil_monochrome_cursor(icon_info):
+    hdc = ctypes.windll.user32.GetDC(None)
+    mem_dc = ctypes.windll.gdi32.CreateCompatibleDC(hdc)
+
+    # Get mask bitmap dimensions
+    bmp = BITMAP()
+    ctypes.windll.gdi32.GetObjectW(icon_info.hbmMask, ctypes.sizeof(BITMAP), ctypes.byref(bmp))
+    width = bmp.bmWidth
+    height = bmp.bmHeight // 2  # The mask bitmap contains both AND and XOR masks, so we divide by 2
+
+    # Create a bitmap for the AND mask
+    and_mask_bmp = ctypes.windll.gdi32.CreateBitmap(width, height, 1, 1, None)
+    ctypes.windll.gdi32.SelectObject(mem_dc, and_mask_bmp)
+    ctypes.windll.gdi32.BitBlt(mem_dc, 0, 0, width, height, None, 0, 0, 0x00CC0020)  # SRCCOPY
+
+    # Get the AND mask bits
+    and_bmi = BITMAPINFO()
+    and_bmi.bmiHeader.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+    and_bmi.bmiHeader.biWidth = width
+    and_bmi.bmiHeader.biHeight = -height
+    and_bmi.bmiHeader.biPlanes = 1
+    and_bmi.bmiHeader.biBitCount = 1
+    and_bmi.bmiHeader.biCompression = BI_RGB
+
+    and_buf_size = width * height // 8
+    and_buffer = (ctypes.c_byte * and_buf_size)()
+
+    res = ctypes.windll.gdi32.GetDIBits(
+        mem_dc,
+        icon_info.hbmMask,
+        0,
+        height,
+        and_buffer,
+        ctypes.byref(and_bmi),
+        DIB_RGB_COLORS
+    )
+    if res == 0:
+        print("GetDIBits failed for monochrome cursor AND mask.")
+        ctypes.windll.gdi32.DeleteObject(and_mask_bmp)
+        ctypes.windll.gdi32.DeleteDC(mem_dc)
+        ctypes.windll.user32.ReleaseDC(None, hdc)
+        return None
+
+    # Now get the XOR mask
+    xor_mask_bmp = ctypes.windll.gdi32.CreateBitmap(width, height, 1, 1, None)
+    ctypes.windll.gdi32.SelectObject(mem_dc, xor_mask_bmp)
+    ctypes.windll.gdi32.BitBlt(mem_dc, 0, 0, width, height, None, 0, height, 0x00CC0020)  # SRCCOPY
+
+    # Get the XOR mask bits
+    xor_bmi = BITMAPINFO()
+    xor_bmi.bmiHeader.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+    xor_bmi.bmiHeader.biWidth = width
+    xor_bmi.bmiHeader.biHeight = height
+    xor_bmi.bmiHeader.biPlanes = 1
+    xor_bmi.bmiHeader.biBitCount = 1
+    xor_bmi.bmiHeader.biCompression = BI_RGB
+
+    xor_buf_size = width * height // 8
+    xor_buffer = (ctypes.c_byte * xor_buf_size)()
+
+    res = ctypes.windll.gdi32.GetDIBits(
+        mem_dc,
+        icon_info.hbmMask,
+        height,
+        height,
+        xor_buffer,
+        ctypes.byref(xor_bmi),
+        DIB_RGB_COLORS
+    )
+    if res == 0:
+        print("GetDIBits failed for monochrome cursor XOR mask.")
+        ctypes.windll.gdi32.DeleteObject(and_mask_bmp)
+        ctypes.windll.gdi32.DeleteObject(xor_mask_bmp)
+        ctypes.windll.gdi32.DeleteDC(mem_dc)
+        ctypes.windll.user32.ReleaseDC(None, hdc)
+        return None
+
+    # Combine the masks to create the final image
+    and_image = Image.frombytes('1', (width, height), and_buffer, 'raw')
+    xor_image = Image.frombytes('1', (width, height), xor_buffer, 'raw')
+
+    # Create the final image
+    final_image = Image.new('RGBA', (width, height))
+
+    for x in range(width):
+        for y in range(height):
+            and_pixel = and_image.getpixel((x, y))
+            xor_pixel = xor_image.getpixel((x, y))
+
+            if and_pixel == 0:
+                # Transparent pixel
+                final_image.putpixel((x, y), (0, 0, 0, 0))
+            else:
+                if xor_pixel == 0:
+                    # Black pixel
+                    final_image.putpixel((x, y), (0, 0, 0, 255))
+                else:
+                    # White pixel
+                    final_image.putpixel((x, y), (255, 255, 255, 255))
+
+    # Clean up
+    ctypes.windll.gdi32.DeleteObject(and_mask_bmp)
+    ctypes.windll.gdi32.DeleteObject(xor_mask_bmp)
+    ctypes.windll.gdi32.DeleteDC(mem_dc)
+    ctypes.windll.user32.ReleaseDC(None, hdc)
+
+    return final_image
+
 
 def hbitmap_to_pil_image(hbitmap):
     if not hbitmap:
@@ -617,6 +1079,12 @@ def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp
     current_time = datetime.datetime.now()
     timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S')
     # Ensure the lock and headers are defined at the appropriate place in your code.
+
+        # Check if sending text is disabled
+    if not SEND_TO_MODEL and prompt and not image_path:
+        print("Sending text to model is disabled. Skipping text prompt.")
+        return None
+    
     with lock:
         # Headers for the API request
         headers = {
@@ -2763,13 +3231,26 @@ def draw_custom_cursor(draw, cursor_position, cursor_size):
     ]
     draw.ellipse(small_circle_bounds, outline=small_circle_color, width=2)
 
-def draw_cursor(draw, cursor_position, cursor_size, native_cursor=False, font=None):
+class CursorPosition:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+def draw_cursor(draw, cursor_position, cursor_size, native_cursor=False, font=None, cursor_image=None,):
     if not native_cursor:
         # Draw the custom cursor
         draw_custom_cursor(draw, cursor_position, cursor_size)
     if native_cursor:
         x=cursor_position[0]
         y=cursor_position[1]
+        CursorPosition.x=x
+        CursorPosition.y=y
+        if cursor_image is None or cursor_image.getbbox() is None:
+            draw_custom_cursor(draw, pyautogui.position(), cursor_size)
+            # After getting the cursor image
+        #if cursor_image:
+        #    cursor_image.save('cursor_debug.png')
+            
     # Always draw the cursor coordinates label
     draw_cursor_label(draw, pyautogui.position(), font)
 
@@ -2807,10 +3288,18 @@ def draw_text_with_background(draw, position, text, font, text_color="white", ba
     # Draw the text over the background rectangle
     draw.text((position[0] + shift_x, position[1] + shift_y), text, fill=text_color, font=font)
 
-def draw_cursor_label(draw, cursor_position, font, shift_x=5, shift_y=20):
+def draw_cursor_label(draw, cursor_position, font_size=12, shift_x=5, shift_y=20):
     text_color = "white"
     background_color = (0, 128, 0)  # Greenish background
     background_opacity = 128
+    # Customize the font size
+    font_size = 23
+        # Load the font with the specified size
+    try:
+        font = ImageFont.truetype(FONT_PATH, font_size)
+    except IOError:
+        print("Font file not found. Falling back to default font.")
+        font = ImageFont.load_default()
 
     cursor_text = f"({cursor_position.x}, {cursor_position.y})"
     text_position = (cursor_position.x + shift_x, cursor_position.y + shift_y)
@@ -2883,13 +3372,19 @@ def handle_queued_input(screenshot_file_path, image_timestamp):
     while not queued_user_input.empty():
         combined_input_list.append(queued_user_input.get())
 
-    if combined_input_list:
+    if combined_input_list and SEND_TO_MODEL:
         combined_input = ' '.join(combined_input_list)
         prompt = f"user input: {combined_input}"
         send_prompt_to_chatgpt(prompt, role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
     else:
-        send_prompt_to_chatgpt("System: Screenshot taken. Please provide instructions...", role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
-
+        # Decide whether to send the screenshot without text or skip sending
+        if SEND_TO_MODEL:
+            # Send a default prompt with the screenshot
+            send_prompt_to_chatgpt("System: Screenshot taken. Please provide instructions...", role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
+        else:
+            # If not sending text to the model, perhaps send only the image
+            #send_prompt_to_chatgpt("", role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
+            print ('no queue')
 
 
     # Use the function and provide a path to save the screenshot
@@ -2925,8 +3420,9 @@ def take_screenshot():
 
         # Get the cursor image, hotspot, and position
         cursor_image, hotspot, cursor_position = get_cursor()
-
+        
         if cursor_image is not None:
+            print("Have Cursor image")
             # Calculate where to paste the cursor image on the screenshot
             x = cursor_position[0] - hotspot[0]
             y = cursor_position[1] - hotspot[1]
@@ -2942,10 +3438,10 @@ def take_screenshot():
 
         # Draw additional elements if needed
         draw = ImageDraw.Draw(screenshot)
-        draw_cursor(draw, cursor_position, cursor_size, True)  # Optional custom cursor drawing
 
         # Add grid, tiles, and text like before
         add_grids_and_labels(screenshot, cursor_position, current_last_key)
+        draw_cursor(draw, cursor_position, cursor_size, True, 23, cursor_image)  # Optional custom cursor drawing
         
         # Draw cursor label only
         #draw = ImageDraw.Draw(screenshot)
