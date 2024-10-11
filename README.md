@@ -17,3 +17,6 @@ if tokenlimit>X||CMD:HANDOFF then generate handoff.txt, else Loop;
 
 All you need are the files Aurora.txt and aurora.py in the AURORA folder. 
 The program assumes that the init.txt file is located in the current working directory where the script is executed. It does not specify a particular folder path, so it looks for "Aurora_init.txt" (or the equivalent) directly in the directory from which the program is run.
+
+*𝑵𝑶𝑻𝑬:* expect the AURORA-old repo to be updated infrequently
+Newer updates / more frequent updates for the AURORA repo, while periodically pushing updates to AURORA-old...
