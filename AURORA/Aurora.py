@@ -89,7 +89,7 @@ INIT_MODE = 'test'  # Options: 'load', 'skip', 'test'
 test_init_prompt = "This is a test init prompt."
 
 init_prompt = ""  # Initialize to an empty string
-SEND_TO_MODEL = False  # Control sending text to the model
+SEND_TO_MODEL = True  # Control sending text to the model, if False program runs without making calls to models, ie if you want to only take screenshots or debug commands and such...
 # Load a TrueType font with the specified size
 
 # Customize the font size
@@ -112,12 +112,12 @@ screen_width, screen_height = pyautogui.size()
 MAX_IMAGES_IN_HISTORY = 0  #was 15 Global variable for the maximum number of images to retain
 #image_detail =  "high"   # "low" or depending on your requirement
 image_detail =  "low"   #was low, "high" or depending on your requirement
-latest_image_detail = "low"  #was "high" for the latest image, "low" for older images
+latest_image_detail = "high"  #was "high" for the latest image, "low" for older images
 # Define the High_Detail global variable
 global High_Detail
-High_Detail = 0  #was 7  Initialize to 0 or set as needed  pos for recent high detail, neg for last
+High_Detail = 7  #was 7  Initialize to 0 or set as needed  pos for recent high detail, neg for last
 global Recent_images_High
-Recent_images_High= 0 #was 7
+Recent_images_High= 7 #was 7
 
 image_timestamp = None
 last_key = None  # Initialize the global variable
@@ -132,7 +132,7 @@ MAX_IMPORTANT_MESSAGES = 100  # Example value
 MAX_UNIMPORTANT_MESSAGES = 100  # Example value
 IMGS_DECAY = 9999 # Setting the default decay time to 3 minutes for important messages
 UMSGS_DECAY = 3.55 # Setting the default decay time to 3 minutes for unimportant messages
-time_interval = 1.35 # Time interval between screenshots (in seconds)
+time_interval = 4.35 # Time interval between screenshots (in seconds)
 
 cursor_size = 20  # Size of the cursor representation
 enable_human_like_click = True
@@ -167,14 +167,14 @@ enable_unit_labels = False        # Set to True if you want to enable TU/RU/LU/D
 
 # Parameters
 threshold = 16.11  
-pause_duration =  1.33  #1.8  
+audio_pause_duration =  0.7  #1.8  this is for audio
 #sampling_rate = 44100 
 sampling_rate = fs 
 audio_buffer = []
 
 
 # Additional global variables
-AUTO_PROMPT_INTERVAL = 9  # Auto-prompt every 30 seconds, but you can change this value # Default auto message depreciated in favor of send_screenshot
+#AUTO_PROMPT_INTERVAL = 9  # DEPRECIATED..  Ignore AUTO_PROMPT_INTERVAL for now,  use the time_interval global instead! AUTO_PROMPT_INTERVAL was an old Auto-prompt option, every 30 seconds, but you can change this value # Default auto message depreciated in favor of send_screenshot -- use the time_interval global instead!
 enable_auto_prompt = False
 auto_prompt_message = "Auto Prompt."  # Default auto message depreciated in favor of send_screenshot which also has text... 
 
@@ -196,7 +196,7 @@ def audio_callback(indata, frames, time_info, status):
     volume_norm = np.linalg.norm(indata) * 10
 
     if volume_norm < threshold and SEND_TO_MODEL:
-        if len(audio_buffer) > sampling_rate * pause_duration:  
+        if len(audio_buffer) > sampling_rate * audio_pause_duration:  
             if not ENABLE_MODEL_RESPONSES:
                 print("Model responses are disabled. Skipping Whisper API call.")
                 audio_buffer.clear()
@@ -3381,10 +3381,10 @@ def handle_queued_input(screenshot_file_path, image_timestamp):
         if SEND_TO_MODEL:
             # Send a default prompt with the screenshot
             send_prompt_to_chatgpt("System: Screenshot taken. Please provide instructions...", role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
-        else:
+        ###else:
             # If not sending text to the model, perhaps send only the image
             #send_prompt_to_chatgpt("", role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
-            print ('no queue')
+            ###print ('no queue')
 
 
     # Use the function and provide a path to save the screenshot
@@ -3407,13 +3407,13 @@ def take_screenshot():
         #screenshot = pyautogui.screenshot()
         # Replace pyautogui.screenshot() with ImageGrab.grab()
         screenshot = ImageGrab.grab()
-        print(f"Screenshot mode: {screenshot.mode}")
-        print(f"Cursor image mode: {cursor_image.mode if cursor_image else 'None'}")
+        ###print(f"Screenshot mode: {screenshot.mode}")
+        ###print(f"Cursor image mode: {cursor_image.mode if cursor_image else 'None'}")
         if cursor_image is not None:
             if cursor_image.mode != screenshot.mode:
                 cursor_image = cursor_image.convert(screenshot.mode)
-        else:
-            print("Cursor image is None.")
+        ###else:
+           ### print("Cursor image is None.")
 
         # Get the mouse cursor's current position
         #cursor_position = pyautogui.position()
@@ -3422,7 +3422,7 @@ def take_screenshot():
         cursor_image, hotspot, cursor_position = get_cursor()
         
         if cursor_image is not None:
-            print("Have Cursor image")
+            ###print("Have Cursor image")
             # Calculate where to paste the cursor image on the screenshot
             x = cursor_position[0] - hotspot[0]
             y = cursor_position[1] - hotspot[1]
@@ -3486,7 +3486,7 @@ def take_screenshot():
     timestamp = int(time.time())
     screenshot_file_path = f"{logging_folder}/{timestamp}.png"
     screenshot.save(screenshot_file_path)
-    print(f"Screenshot saved at {screenshot_file_path}")
+    print(f"Screenshot saved at {screenshot_file_path} at {image_timestamp}")
 
     # Handle user input and send the screenshot
     handle_queued_input(screenshot_file_path, image_timestamp)
