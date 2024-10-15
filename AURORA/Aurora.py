@@ -36,7 +36,10 @@ import queue
 import re
 import ctypes
 from ctypes import wintypes
+import winsound
+from pygame import mixer
 from PIL import Image, ImageDraw, ImageFont
+from colorama import Fore, Style
 import threading  # Ensure lock is available
 
 API_KEY=                                                                                                                                                                                                                                                                                                                "sk-proj-SECRETKEY"
@@ -89,7 +92,7 @@ INIT_MODE = 'test'  # Options: 'load', 'skip', 'test'
 test_init_prompt = "This is a test init prompt."
 
 init_prompt = ""  # Initialize to an empty string
-SEND_TO_MODEL = True  # Control sending text to the model, if False program runs without making calls to models, ie if you want to only take screenshots or debug commands and such...
+SEND_TO_MODEL = False  # Control sending text to the model
 # Load a TrueType font with the specified size
 
 # Customize the font size
@@ -112,12 +115,12 @@ screen_width, screen_height = pyautogui.size()
 MAX_IMAGES_IN_HISTORY = 0  #was 15 Global variable for the maximum number of images to retain
 #image_detail =  "high"   # "low" or depending on your requirement
 image_detail =  "low"   #was low, "high" or depending on your requirement
-latest_image_detail = "high"  #was "high" for the latest image, "low" for older images
+latest_image_detail = "low"  #was "high" for the latest image, "low" for older images
 # Define the High_Detail global variable
 global High_Detail
-High_Detail = 7  #was 7  Initialize to 0 or set as needed  pos for recent high detail, neg for last
+High_Detail = 0  #was 7  Initialize to 0 or set as needed  pos for recent high detail, neg for last
 global Recent_images_High
-Recent_images_High= 7 #was 7
+Recent_images_High= 0 #was 7
 
 image_timestamp = None
 last_key = None  # Initialize the global variable
@@ -132,7 +135,7 @@ MAX_IMPORTANT_MESSAGES = 100  # Example value
 MAX_UNIMPORTANT_MESSAGES = 100  # Example value
 IMGS_DECAY = 9999 # Setting the default decay time to 3 minutes for important messages
 UMSGS_DECAY = 3.55 # Setting the default decay time to 3 minutes for unimportant messages
-time_interval = 4.35 # Time interval between screenshots (in seconds)
+time_interval = 0.35 # Time interval between screenshots (in seconds)
 
 cursor_size = 20  # Size of the cursor representation
 enable_human_like_click = True
@@ -173,13 +176,76 @@ sampling_rate = fs
 audio_buffer = []
 
 
+# Alias for Style.RESET_ALL
+RESET = Style.RESET_ALL
+# Initialize the mixer
+mixer.init()
+
+# Load different sounds for different stages
+chimeswav = "C:\Windows\Media\chimes.wav"
+chordwav = "C:\Windows\Media\chord.wav"
+alarm3 = "C:\Windows\Media\Alarm03.wav"
+alarm10 = "C:\Windows\Media\Alarm10.wav"
+tada_wav = "C:\Windows\Media\tada.wav"
+speech_off_wav = "C:\Windows\Media\Speech Off.wav"
+speech_on_wav = "C:\Windows\Media\Speech On.wav"
+speech_sleep_wav = "C:\Windows\Media\Speech Sleep.wav"
+winringin_wav = "C:\Windows\Media\Windows Ringin.wav"
+winunlock_wav= "C:\Windows\Media\Windows Unlock.wav"
+
+mixer.music.set_volume(0.8)  # Set global volume, adjust as needed
+
+def ftime():
+    return datetime.datetime.now().strftime('%M:%S.%f')[:-4]
+
+# Color map to store each function's assigned color
+func_colors = {}
+
+# List of distinct bright colors
+color_list = [Fore.RED, Fore.GREEN, Fore.YELLOW, Fore.BLUE, Fore.MAGENTA, Fore.CYAN, Fore.LIGHTRED_EX, Fore.LIGHTGREEN_EX, Fore.LIGHTYELLOW_EX, Fore.LIGHTBLUE_EX, Fore.LIGHTMAGENTA_EX, Fore.LIGHTCYAN_EX]
+
+# Function to assign colors to functions in a stable manner
+def get_color(func_name):
+    if func_name not in func_colors:
+        # Assign the next available color from the list
+        color = color_list[len(func_colors) % len(color_list)]
+        func_colors[func_name] = color
+    return func_colors[func_name]
+
+
+
+
+# Time logger decorator
+def time_logger(func):
+    def wrapper(*args, **kwargs):
+        start_time = ftime()
+        color = get_color(func.__name__)
+        print(f"{color}Starting function '{func.__name__}' at {start_time}{Style.RESET_ALL}")
+        
+        result = func(*args, **kwargs)
+        
+        end_time = ftime()
+        print(f"{color}Function '{func.__name__}' completed at {end_time}{Style.RESET_ALL}")
+        
+        # Calculate the time difference (convert to datetime for calculation)
+        start_dt = datetime.datetime.strptime(start_time, '%M:%S.%f')
+        end_dt = datetime.datetime.strptime(end_time, '%M:%S.%f')
+        time_diff = end_dt - start_dt
+        
+        print(f"{color}Time taken for '{func.__name__}': {time_diff}{Style.RESET_ALL}")
+        return result
+    return wrapper
+
+
+
 # Additional global variables
-#AUTO_PROMPT_INTERVAL = 9  # DEPRECIATED..  Ignore AUTO_PROMPT_INTERVAL for now,  use the time_interval global instead! AUTO_PROMPT_INTERVAL was an old Auto-prompt option, every 30 seconds, but you can change this value # Default auto message depreciated in favor of send_screenshot -- use the time_interval global instead!
+AUTO_PROMPT_INTERVAL = 9  # DEPRECIATED..  Auto-prompt every 30 seconds, but you can change this value # Default auto message depreciated in favor of send_screenshot
 enable_auto_prompt = False
 auto_prompt_message = "Auto Prompt."  # Default auto message depreciated in favor of send_screenshot which also has text... 
 
 
 # Function to run the audio stream
+
 def run_audio_stream():
     with sd.InputStream(callback=audio_callback):
         sd.sleep(100000000)  # This will keep the audio stream open indefinitely. Adjust as needed.
@@ -189,6 +255,7 @@ def run_audio_stream():
 
 
 last_print_time = time.time()
+
 
 def audio_callback(indata, frames, time_info, status):
     global last_print_time
@@ -247,6 +314,8 @@ audio_thread.start()
 def threshold_check(current_token_count, total_tokens, threshold_percentage):
     threshold = total_tokens * threshold_percentage / 100
     return current_token_count > threshold
+
+
 
 
 # Define missing handle types
@@ -1066,6 +1135,7 @@ def upload_image_and_get_file_id(image_path):
 
 
 # Function to send prompt to ChatGPT
+@time_logger
 def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp=None, exemption=None, sticky=False):
     global token_counter
     global init_handoff_in_progress
@@ -1266,6 +1336,7 @@ def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp
             print(f"Message: {response.text}")
             return None
 
+@time_logger
 def update_chat_history(role, content, token_count=None, image_path=None, exemption='None', image_timestamp=None, sticky=False ):
 
     global chat_history
@@ -1695,6 +1766,7 @@ def display_help():
     """
     display_message("system", help_message)
 
+@time_logger
 def manage_image_history(new_image_base64, image_timestamp=None, sticky=False):
     global chat_history
     global MAX_IMAGES_IN_HISTORY
@@ -1768,6 +1840,7 @@ def manage_image_history(new_image_base64, image_timestamp=None, sticky=False):
 
 
 # Function to handle user input
+@time_logger
 def user_input_handler():
     global chat_history
     global disable_commands
@@ -2228,6 +2301,7 @@ def toggle_imsgs_decay_check_command(args, is_user):
     status = 'ON' if CHECK_IMSGS_DECAY else 'OFF'
     display_message('system', f"Important messages decay check toggled to {status}.")
 
+@time_logger
 def handle_command_toggle(command):
     global disable_commands
     if command == '/*':
@@ -2296,7 +2370,7 @@ def handle_commands(command_input, is_user=True, exemption=None, is_assistant=Fa
 
 
   
-
+@time_logger
 def handle_pyautogui_command(cmd, args):
     if cmd in ["press", "hold"]:
         key = args[0].strip().lower()
@@ -2657,7 +2731,7 @@ def save_chat_history_to_file(chat_history, file_name):
 
 
 
-
+@time_logger
 def display_message(role, content, token_count=None, include_command=False):
     global show_user_text, show_ai_text, hide_ai_commands, hide_user_commands, REQUIRE_POWER_WORD, POWER_WORD
 
@@ -3047,50 +3121,6 @@ def listen_to_keyboard():
 # Function to add a grid with color-coded tiles and labeled coordinates
 
 
-# Function to add the colored tile grid with only directional labels
-def add_colored_tile_grid_v3(image, center_tile, tile_size, colors_x, colors_y):
-    
-    draw = ImageDraw.Draw(image)
-    
-        # Calculate half-tile offsets for proper grid alignment
-    half_tile_offset = (tile_size[0] // 2, tile_size[1] // 2)
-    # Apply a half-tile shift to center the grid
-    x_offset = -half_tile_offset[0]
-    y_offset = -half_tile_offset[1]
-
-    # Loop through the grid around the center tile
-    for i in range(-5, 6):  # Adjust the range for the grid size (5 tiles in each direction)
-        for j in range(-5, 6):
-            # Calculate the position of the current tile
-            tile_x = center_tile[0] + i * tile_size[0] + x_offset
-            tile_y = center_tile[1] + j * tile_size[1] + y_offset
-
-            # Determine the color for X and Y distances
-            color_x = colors_x[min(abs(i), len(colors_x) - 1)]
-            color_y = colors_y[min(abs(j), len(colors_y) - 1)]
-
-            # Draw the tile with the appropriate colors
-            draw_tile_with_colors(draw, tile_x, tile_y, tile_size, color_x, color_y)
-
-            # Label only the direct horizontal and vertical tiles (1-5 tiles away)
-            if i == 0 and j != 0:  # Vertical tiles (Up/Down)
-                label = f"{abs(j)}T" + ("U" if j < 0 else "D")
-                draw_text_with_background(draw, (tile_x + 5, tile_y - 15), label, font)
-            elif j == 0 and i != 0:  # Horizontal tiles (Left/Right)
-                label = f"{abs(i)}T" + ("L" if i < 0 else "R")
-                draw_text_with_background(draw, (tile_x + 5, tile_y - 15), label, font)
-
-
-
-# Helper function to draw the tiles with X/Y axis colors
-def draw_tile_with_colors(draw, x, y, tile_size, color_x, color_y):
-    # Draw the left and right borders (X axis)
-    draw.line([(x, y), (x, y + tile_size[1])], fill=color_x, width=3)  # Left
-    draw.line([(x + tile_size[0], y), (x + tile_size[0], y + tile_size[1])], fill=color_x, width=3)  # Right
-
-    # Draw the top and bottom borders (Y axis)
-    draw.line([(x, y), (x + tile_size[0], y)], fill=color_y, width=3)  # Top
-    draw.line([(x, y + tile_size[1]), (x + tile_size[0], y + tile_size[1])], fill=color_y, width=3)  # Bottom
 
 
 #def draw_cursor(draw, cursor_position, cursor_size):
@@ -3158,6 +3188,56 @@ def draw_tile_with_colors(draw, x, y, tile_size, color_x, color_y):
 #    cursor_text = f"({cursor_position.x}, {cursor_position.y})"
 #    draw_text_with_background(draw, text_position, cursor_text, font, text_color, background_color, background_opacity, shift_x, shift_y)
 
+
+# Function to add the colored tile grid with only directional labels
+@time_logger
+def add_colored_tile_grid_v3(image, center_tile, tile_size, colors_x, colors_y):
+    
+    draw = ImageDraw.Draw(image)
+    
+        # Calculate half-tile offsets for proper grid alignment
+    half_tile_offset = (tile_size[0] // 2, tile_size[1] // 2)
+    # Apply a half-tile shift to center the grid
+    x_offset = -half_tile_offset[0]
+    y_offset = -half_tile_offset[1]
+
+    # Loop through the grid around the center tile
+    for i in range(-5, 6):  # Adjust the range for the grid size (5 tiles in each direction)
+        for j in range(-5, 6):
+            # Calculate the position of the current tile
+            tile_x = center_tile[0] + i * tile_size[0] + x_offset
+            tile_y = center_tile[1] + j * tile_size[1] + y_offset
+
+            # Determine the color for X and Y distances
+            color_x = colors_x[min(abs(i), len(colors_x) - 1)]
+            color_y = colors_y[min(abs(j), len(colors_y) - 1)]
+
+            # Draw the tile with the appropriate colors
+            draw_tile_with_colors(draw, tile_x, tile_y, tile_size, color_x, color_y)
+
+            # Label only the direct horizontal and vertical tiles (1-5 tiles away)
+            if i == 0 and j != 0:  # Vertical tiles (Up/Down)
+                label = f"{abs(j)}T" + ("U" if j < 0 else "D")
+                draw_text_with_background(draw, (tile_x + 5, tile_y - 15), label, font)
+            elif j == 0 and i != 0:  # Horizontal tiles (Left/Right)
+                label = f"{abs(i)}T" + ("L" if i < 0 else "R")
+                draw_text_with_background(draw, (tile_x + 5, tile_y - 15), label, font)
+
+
+
+# Helper function to draw the tiles with X/Y axis colors
+@time_logger
+def draw_tile_with_colors(draw, x, y, tile_size, color_x, color_y):
+    # Draw the left and right borders (X axis)
+    draw.line([(x, y), (x, y + tile_size[1])], fill=color_x, width=3)  # Left
+    draw.line([(x + tile_size[0], y), (x + tile_size[0], y + tile_size[1])], fill=color_x, width=3)  # Right
+
+    # Draw the top and bottom borders (Y axis)
+    draw.line([(x, y), (x + tile_size[0], y)], fill=color_y, width=3)  # Top
+    draw.line([(x, y + tile_size[1]), (x + tile_size[0], y + tile_size[1])], fill=color_y, width=3)  # Bottom
+
+
+@time_logger
 def draw_custom_cursor(draw, cursor_position, cursor_size):
     # Define colors
     outer_color = "black"
@@ -3236,6 +3316,7 @@ class CursorPosition:
         self.x = x
         self.y = y
 
+@time_logger
 def draw_cursor(draw, cursor_position, cursor_size, native_cursor=False, font=None, cursor_image=None,):
     if not native_cursor:
         # Draw the custom cursor
@@ -3255,6 +3336,7 @@ def draw_cursor(draw, cursor_position, cursor_size, native_cursor=False, font=No
     draw_cursor_label(draw, pyautogui.position(), font)
 
 # Helper function to draw text with background
+@time_logger
 def draw_text_with_background(draw, position, text, font, text_color="white", background_color=(0, 0, 0), background_opacity=128, shift_x=5, shift_y=20):
     # Calculate text size
     text_bbox = draw.textbbox(position, text, font=font)
@@ -3288,6 +3370,7 @@ def draw_text_with_background(draw, position, text, font, text_color="white", ba
     # Draw the text over the background rectangle
     draw.text((position[0] + shift_x, position[1] + shift_y), text, fill=text_color, font=font)
 
+@time_logger
 def draw_cursor_label(draw, cursor_position, font_size=12, shift_x=5, shift_y=20):
     text_color = "white"
     background_color = (0, 128, 0)  # Greenish background
@@ -3317,6 +3400,7 @@ def draw_cursor_label(draw, cursor_position, font_size=12, shift_x=5, shift_y=20
     )    
 
 # Function to add a dot grid with labeled coordinates
+@time_logger
 def add_dot_grid_with_labels(image, grid_interval, key_points):
     draw = ImageDraw.Draw(image)
 
@@ -3333,6 +3417,7 @@ def add_dot_grid_with_labels(image, grid_interval, key_points):
 
 
 # Function to add grids, tiles, and labels
+@time_logger
 def add_grids_and_labels(screenshot, cursor_position, current_last_key):
     draw = ImageDraw.Draw(screenshot)  # This creates the 'draw' object to work with the screenshot
 
@@ -3390,6 +3475,7 @@ def handle_queued_input(screenshot_file_path, image_timestamp):
     # Use the function and provide a path to save the screenshot
     #capture_screenshot_with_cursor_info('screenshot_info.png')
 # Function to take a screenshot
+@time_logger
 def take_screenshot():
     global last_key  # Ensure you are referring to the global variable updated by the listener thread
     global image_timestamp
@@ -3407,6 +3493,8 @@ def take_screenshot():
         #screenshot = pyautogui.screenshot()
         # Replace pyautogui.screenshot() with ImageGrab.grab()
         screenshot = ImageGrab.grab()
+        mixer.music.load(speech_off_wav)
+        mixer.music.play()
         ###print(f"Screenshot mode: {screenshot.mode}")
         ###print(f"Cursor image mode: {cursor_image.mode if cursor_image else 'None'}")
         if cursor_image is not None:
@@ -3487,9 +3575,12 @@ def take_screenshot():
     screenshot_file_path = f"{logging_folder}/{timestamp}.png"
     screenshot.save(screenshot_file_path)
     print(f"Screenshot saved at {screenshot_file_path} at {image_timestamp}")
-
+    #winsound.Beep(1000, 500)  # Frequency = 1000Hz, Duration = 500ms
+    mixer.music.load(chimeswav)
+    mixer.music.play()
     # Handle user input and send the screenshot
     handle_queued_input(screenshot_file_path, image_timestamp)
+
 
 
 def initiate_and_handoff():
