@@ -18,13 +18,11 @@ import requests
 import schedule
 import sounddevice as sd
 import tiktoken
-from PIL import Image
-from PIL import ImageGrab
-from PIL import ImageDraw
-from PIL import ImageFont # ImageFilter
+from PIL import Image, ImageGrab, ImageDraw, ImageFont #ImageFilter
 import random
-from threading import Lock
-from threading import RLock
+from threading import Lock, RLock
+from multiprocessing import Process, Queue, Lock, RLock
+import time
 from scipy.io.wavfile import write
 import tempfile
 import ffmpeg
@@ -38,9 +36,12 @@ import ctypes
 from ctypes import wintypes
 import winsound
 from pygame import mixer
-from PIL import Image, ImageDraw, ImageFont
 from colorama import Fore, Style
 import threading  # Ensure lock is available
+import cProfile
+import pstats
+
+time_interval = 0.05 # Time interval between screenshots (in seconds)
 
 API_KEY=                                                                                                                                                                                                                                                                                                                "sk-proj-SECRETKEY"
 POWER_WORD = ""
@@ -135,7 +136,6 @@ MAX_IMPORTANT_MESSAGES = 100  # Example value
 MAX_UNIMPORTANT_MESSAGES = 100  # Example value
 IMGS_DECAY = 9999 # Setting the default decay time to 3 minutes for important messages
 UMSGS_DECAY = 3.55 # Setting the default decay time to 3 minutes for unimportant messages
-time_interval = 0.35 # Time interval between screenshots (in seconds)
 
 cursor_size = 20  # Size of the cursor representation
 enable_human_like_click = True
@@ -161,6 +161,8 @@ lock = RLock()
 mouse_position_lock = RLock()
 last_key_lock = RLock()
 image_history_lock = RLock()
+# Initialize a lock at the global level
+file_write_lock = threading.Lock()
 #queued_input_lock = RLock() #RLock? 
 
 
@@ -198,6 +200,20 @@ mixer.music.set_volume(0.8)  # Set global volume, adjust as needed
 def ftime():
     return datetime.datetime.now().strftime('%M:%S.%f')[:-4]
 
+TARGET_RESOLUTIONS = {
+    "FWXGA": (1366, 768),   # ~16:9 aspect ratio ***
+    "XGA": (1024, 768),     # 4:3 aspect ratio
+    "WXGA": (1280, 800),    # 16:10 aspect ratio
+    "HD+": (720, 1600),     # ~20:9 aspect ratio, common in budget smartphones
+    "Full HD+": (1080, 2400), # ~20:9 aspect ratio, common in mid-range/high-end smartphones
+    "QHD+": (1440, 3200)    # ~20:9 aspect ratio, common in flagship smartphones
+}
+
+
+# Choose the target resolution
+target_resolution_name = "FWXGA"  # You can set this dynamically if needed
+target_width, target_height = TARGET_RESOLUTIONS[target_resolution_name]
+
 # Color map to store each function's assigned color
 func_colors = {}
 
@@ -211,7 +227,6 @@ def get_color(func_name):
         color = color_list[len(func_colors) % len(color_list)]
         func_colors[func_name] = color
     return func_colors[func_name]
-
 
 
 
@@ -236,6 +251,382 @@ def time_logger(func):
         return result
     return wrapper
 
+
+# Helper function to draw text with background
+@time_logger
+def draw_text_with_background(draw, position, text, font, text_color="white", background_color=(0, 0, 0), background_opacity=128, shift_x=5, shift_y=20):
+    # Calculate text size
+    text_bbox = draw.textbbox(position, text, font=font)
+    text_width = text_bbox[2] - text_bbox[0]
+    text_height = text_bbox[3] - text_bbox[1]
+
+    # Set padding around the text
+    padding = 4
+
+    # Define the background rectangle position with shift
+    background_position = (
+        position[0] - padding + shift_x,
+        position[1] - padding + shift_y,
+        position[0] + text_width + padding + shift_x,
+        position[1] + text_height + padding + shift_y
+    )
+
+    # Create a transparent image for the background
+    background_image = Image.new('RGBA', draw.im.size, (0, 0, 0, 0))
+    background_draw = ImageDraw.Draw(background_image)
+    background_color_with_opacity = (background_color[0], background_color[1], background_color[2], background_opacity)
+    background_draw.rectangle(background_position, fill=background_color_with_opacity)
+
+    # Extract the alpha channel from the background image
+    alpha = background_image.split()[3]
+
+    # Composite the transparent background onto the original image using paste with a mask
+    bounding_box = (0, 0, draw.im.size[0], draw.im.size[1])
+    draw.im.paste(background_image.im, bounding_box, alpha.im)
+
+    # Draw the text over the background rectangle
+    draw.text((position[0] + shift_x, position[1] + shift_y), text, fill=text_color, font=font)
+
+@time_logger
+def draw_cursor_label(draw, cursor_position, font, shift_x=5, shift_y=20):
+    text_color = "white"
+    background_color = (0, 128, 0)  # Greenish background
+    background_opacity = 128
+    # Customize the font size
+    font_size = 23
+        # Load the font with the specified size
+    try:
+        font = ImageFont.truetype(FONT_PATH, font_size)
+    except IOError:
+        print("Font file not found. Falling back to default font.")
+        font = ImageFont.load_default()
+
+    cursor_text = f"({cursor_position.x}, {cursor_position.y})"
+    text_position = (cursor_position.x + shift_x, cursor_position.y + shift_y)
+
+    draw_text_with_background(
+        draw,
+        text_position,
+        cursor_text,
+        font,
+        text_color,
+        background_color,
+        background_opacity,
+        shift_x,
+        shift_y
+    )    
+
+# Function to add a dot grid with labeled coordinates
+@time_logger
+def add_dot_grid_with_labels(image, key_points, font):
+    draw = ImageDraw.Draw(image)
+
+    # Draw dots and labels only at the key points
+    for x, y in key_points:
+        draw.ellipse((x - 4, y - 4, x + 4, y + 4), fill="red", outline="red")  # Draw the larger red dot
+        coordinate_label = f"{x},{y}"
+        draw_text_with_background(draw, (x + 5, y - 15), coordinate_label, font, background_opacity=128)
+
+
+
+# Function to add grids, tiles, and labels
+@time_logger
+def add_grids_and_labels(screenshot, cursor_position, current_last_key, scaling_factor_x, scaling_factor_y, font):
+    draw = ImageDraw.Draw(screenshot)
+
+    # Adjust grid intervals based on scaling factors
+    grid_interval_x = int(150 * scaling_factor_x)
+    grid_interval_y = int(150 * scaling_factor_y)
+
+    # Adjust key points based on scaling factors
+    key_points = [
+        (int(x * scaling_factor_x), int(y * scaling_factor_y))
+        for x, y in [
+            (150, 150), (300, 750), (450, 150),
+            (900, 150), (1200, 150),
+            (1050, 750), (1350, 300), (1350, 600),
+            (1350, 750)
+        ]
+    ]
+
+    add_dot_grid_with_labels(screenshot, key_points, font)
+
+    if enable_colored_tile_grid:
+        # Continue with your grid and tile drawing
+        add_colored_tile_grid_v3(screenshot, center_tile=(719, 444), tile_size=(162, 98),
+                                 colors_x=['blue', 'red', 'orange', 'yellow', 'purple', 'black'],
+                                 colors_y=['blue', 'red', 'orange', 'yellow', 'purple', 'black'])
+
+
+    # Customize the font size
+    font_size = 23
+    try:
+        font = ImageFont.truetype(FONT_PATH, font_size)
+    except IOError:
+        print("Font file not found. Falling back to default font.")
+        font = ImageFont.load_default()
+
+    # Draw text with background
+    text_position = (40, 55)  # Position of the text
+    text_info = f"Cursor Position: {cursor_position} | Last Key: {current_last_key} | Timestamp: {image_timestamp}"
+    draw_text_with_background(draw, text_position, text_info, font, background_opacity=128, shift_x=5, shift_y=20)
+
+
+
+
+
+
+def add_static_elements_to_overlay(draw_overlay, scaling_factor_x, scaling_factor_y, font):
+    # Adjust grid intervals based on scaling factors
+    grid_interval_x = int(150 * scaling_factor_x)
+    grid_interval_y = int(150 * scaling_factor_y)
+
+    # Adjust key points based on scaling factors
+    key_points = [
+        (int(x * scaling_factor_x), int(y * scaling_factor_y))
+        for x, y in [
+            (150, 150), (300, 750), (450, 150),
+            (900, 150), (1200, 150),
+            (1050, 750), (1350, 300), (1350, 600),
+            (1350, 750)
+        ]
+    ]
+
+    # Draw static elements onto the overlay
+    add_dot_grid_with_labels(overlay, key_points, font)
+#
+    if enable_colored_tile_grid:
+        add_colored_tile_grid_v3(overlay, center_tile=(int(719 * scaling_factor_x), int(444 * scaling_factor_y)),
+                                 tile_size=(int(162 * scaling_factor_x), int(98 * scaling_factor_y)),
+                                 colors_x=['blue', 'red', 'orange', 'yellow', 'purple', 'black'],
+                                 colors_y=['blue', 'red', 'orange', 'yellow', 'purple', 'black'])
+
+# Capture a temporary screenshot to get original dimensions
+temp_screenshot = ImageGrab.grab()
+original_width, original_height = temp_screenshot.size
+
+# Calculate scaling factors
+scaling_factor_x = target_width / original_width
+scaling_factor_y = target_height / original_height
+
+
+
+# Define the function to create the overlay
+def create_overlay():
+    global overlay, draw_overlay
+    # Create a transparent overlay at the target resolution
+    overlay = Image.new('RGBA', (target_width, target_height), (0, 0, 0, 0))
+    draw_overlay = ImageDraw.Draw(overlay)
+
+    # Adjust font size based on scaling factor
+    adjusted_font_size = max(int(font_size * scaling_factor_x), 10)
+    try:
+        font = ImageFont.truetype(FONT_PATH, adjusted_font_size)
+    except IOError:
+        print("Font file not found. Falling back to default font.")
+        font = ImageFont.load_default()
+
+    # Draw static elements onto the overlay
+    add_static_elements_to_overlay(draw_overlay, scaling_factor_x, scaling_factor_y, font)
+
+# Call create_overlay() once during initialization
+create_overlay()
+
+
+
+
+
+
+
+# Preload the font at the top of your script
+try:
+    font = ImageFont.truetype(FONT_PATH, font_size)
+except IOError:
+    print("Font file not found. Falling back to default font.")
+    font = ImageFont.load_default()
+
+# Create a transparent overlay
+#overlay = Image.new('RGBA', (screen_width, screen_height), (0, 0, 0, 0))
+#draw_overlay = ImageDraw.Draw(overlay)
+
+
+# Draw static elements onto the overlay
+#add_static_elements_to_overlay(draw_overlay, scaling_factor_x, scaling_factor_y, font) 
+
+
+
+
+
+# Function to add the colored tile grid with only directional labels
+@time_logger
+def add_colored_tile_grid_v3(image, center_tile, tile_size, colors_x, colors_y):
+    
+    draw = ImageDraw.Draw(image)
+    
+        # Calculate half-tile offsets for proper grid alignment
+    half_tile_offset = (tile_size[0] // 2, tile_size[1] // 2)
+    # Apply a half-tile shift to center the grid
+    x_offset = -half_tile_offset[0]
+    y_offset = -half_tile_offset[1]
+
+    # Loop through the grid around the center tile
+    for i in range(-5, 6):  # Adjust the range for the grid size (5 tiles in each direction)
+        for j in range(-5, 6):
+            # Calculate the position of the current tile
+            tile_x = center_tile[0] + i * tile_size[0] + x_offset
+            tile_y = center_tile[1] + j * tile_size[1] + y_offset
+
+            # Determine the color for X and Y distances
+            color_x = colors_x[min(abs(i), len(colors_x) - 1)]
+            color_y = colors_y[min(abs(j), len(colors_y) - 1)]
+
+            # Draw the tile with the appropriate colors
+            draw_tile_with_colors(draw, tile_x, tile_y, tile_size, color_x, color_y)
+
+            # Label only the direct horizontal and vertical tiles (1-5 tiles away)
+            if i == 0 and j != 0:  # Vertical tiles (Up/Down)
+                label = f"{abs(j)}T" + ("U" if j < 0 else "D")
+                draw_text_with_background(draw, (tile_x + 5, tile_y - 15), label, font)
+            elif j == 0 and i != 0:  # Horizontal tiles (Left/Right)
+                label = f"{abs(i)}T" + ("L" if i < 0 else "R")
+                draw_text_with_background(draw, (tile_x + 5, tile_y - 15), label, font)
+
+
+
+# Helper function to draw the tiles with X/Y axis colors
+@time_logger
+def draw_tile_with_colors(draw, x, y, tile_size, color_x, color_y):
+    # Draw the left and right borders (X axis)
+    draw.line([(x, y), (x, y + tile_size[1])], fill=color_x, width=3)  # Left
+    draw.line([(x + tile_size[0], y), (x + tile_size[0], y + tile_size[1])], fill=color_x, width=3)  # Right
+
+    # Draw the top and bottom borders (Y axis)
+    draw.line([(x, y), (x + tile_size[0], y)], fill=color_y, width=3)  # Top
+    draw.line([(x, y + tile_size[1]), (x + tile_size[0], y + tile_size[1])], fill=color_y, width=3)  # Bottom
+
+
+@time_logger
+def draw_custom_cursor(draw, cursor_position, cursor_size):
+    # Define colors
+    outer_color = "black"
+    inner_color = "white"
+    large_circle_color = "red"
+    medium_circle_color = "red"
+    small_circle_color = "blue"
+
+    # Outer rectangle (black outline)
+    outer_rectangle = [
+        cursor_position.x - 1,
+        cursor_position.y - 1,
+        cursor_position.x + cursor_size + 1,
+        cursor_position.y + cursor_size + 1
+    ]
+    draw.rectangle(outer_rectangle, outline=outer_color, fill=outer_color)
+
+    # Inner rectangle (white cursor)
+    inner_rectangle = [
+        cursor_position.x,
+        cursor_position.y,
+        cursor_position.x + cursor_size,
+        cursor_position.y + cursor_size
+    ]
+    draw.rectangle(inner_rectangle, outline=inner_color, fill=inner_color)
+
+    # Draw an 'X' inside the rectangle
+    draw.line(
+        [
+            (cursor_position.x, cursor_position.y),
+            (cursor_position.x + cursor_size, cursor_position.y + cursor_size)
+        ],
+        fill=outer_color
+    )
+    draw.line(
+        [
+            (cursor_position.x, cursor_position.y + cursor_size),
+            (cursor_position.x + cursor_size, cursor_position.y)
+        ],
+        fill=outer_color
+    )
+
+    # Draw the red circles
+    center_x = cursor_position.x + cursor_size / 2
+    center_y = cursor_position.y + cursor_size / 2
+
+    large_radius = cursor_size + 3
+    large_circle_bounds = [
+        center_x - large_radius,
+        center_y - large_radius,
+        center_x + large_radius,
+        center_y + large_radius
+    ]
+    draw.ellipse(large_circle_bounds, outline=large_circle_color, width=2)
+
+    medium_radius = (cursor_size / 2) * (2 ** 0.5)
+    medium_circle_bounds = [
+        center_x - medium_radius,
+        center_y - medium_radius,
+        center_x + medium_radius,
+        center_y + medium_radius
+    ]
+    draw.ellipse(medium_circle_bounds, outline=medium_circle_color, width=2)
+
+    small_radius = cursor_size / 2
+    small_circle_bounds = [
+        center_x - small_radius,
+        center_y - small_radius,
+        center_x + small_radius,
+        center_y + small_radius
+    ]
+    draw.ellipse(small_circle_bounds, outline=small_circle_color, width=2)
+
+class CursorPosition:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+@time_logger
+def draw_cursor(draw, cursor_position, cursor_size, native_cursor=False, font=font_size, cursor_image=None):
+    if not native_cursor:
+        # Draw the custom cursor
+        draw_custom_cursor(draw, cursor_position, cursor_size)
+        print("if not native cursor")
+        # Native cursor is already handled in the screenshot
+    if native_cursor:
+        x,y = pyautogui.position()
+#        x=cursor_position[0]
+ #       y=cursor_position[1]
+        CursorPosition.x=x
+        CursorPosition.y=y
+        if cursor_image is None:
+            print("CURSOR IMAGE NONE ~~~~====")
+            #draw_custom_cursor(draw, cursor_position, cursor_size)
+        if cursor_image is not None:
+            print("CURSOR IMAGE DETECTED!!!~~~~~================")
+
+
+
+        #    draw_custom_cursor(draw, cursor_position, cursor_size)
+        #    print("Native cursor but image or getbox is none")
+    else:
+        pass
+            # After getting the cursor image
+        #if cursor_image:
+        #    cursor_image.save('cursor_debug.png')
+            
+    # Always draw the cursor coordinates label
+    draw_cursor_label(draw, cursor_position, font=font_size)
+
+
+
+
+
+
+# If you have other static elements like grids or tiles, draw them here
+# For example:
+if enable_colored_tile_grid:
+    add_colored_tile_grid_v3(overlay, center_tile=(719, 444), tile_size=(162, 98),
+                             colors_x=['blue', 'red', 'orange', 'yellow', 'purple', 'black'],
+                             colors_y=['blue', 'red', 'orange', 'yellow', 'purple', 'black'])
 
 
 # Additional global variables
@@ -501,170 +892,7 @@ ctypes.windll.user32.GetIconInfo.restype = wintypes.BOOL
 # Initialize the lock for thread safety
 lock = threading.RLock()  #Rlock or lock here?
 
-#def get_cursor():
-#    # Initialize CURSORINFO
-#    cursor_info = CURSORINFO()
-#    cursor_info.cbSize = ctypes.sizeof(CURSORINFO)
-#    if not ctypes.windll.user32.GetCursorInfo(ctypes.byref(cursor_info)):
-#        return None, None, None
-#
-#    hicon = cursor_info.hCursor
-#    if not hicon:
-#        return None, None, None
-#
-#    # Get ICONINFO
-#    icon_info = ICONINFO()
-#    if not ctypes.windll.user32.GetIconInfo(hicon, ctypes.byref(icon_info)):
-#        return None, None, None
-#
-#    # Get cursor position
-#    x, y = cursor_info.ptScreenPos.x, cursor_info.ptScreenPos.y
-#
-#    # Get cursor hotspot
-#    hotspot = (icon_info.xHotspot, icon_info.yHotspot)
-#
-#    # Convert HBITMAP to PIL Image
-#    if icon_info.hbmColor:
-#        cursor_image = hbitmap_to_pil_image(icon_info.hbmColor)
-#    else:
-#        cursor_image = hbitmap_to_pil_image(icon_info.hbmMask)
-#        if cursor_image is not None:
-#            # Convert mask image to RGBA
-#            cursor_image = cursor_image.convert('RGBA')
-#            # Apply a default color, e.g., black
-#            cursor_image_data = cursor_image.getdata()
-#            new_data = []
-#            for item in cursor_image_data:
-#                if item == 0:
-#                    new_data.append((0, 0, 0, 0))  # Transparent
-#                else:
-#                    new_data.append((0, 0, 0, 255))  # Black
-#            cursor_image.putdata(new_data)
-#
-#    if cursor_image is None:
-#        return None, None, None
-#
-#    # Clean up GDI objects
-#    ctypes.windll.gdi32.DeleteObject(icon_info.hbmColor)
-#    ctypes.windll.gdi32.DeleteObject(icon_info.hbmMask)
-#
-#    return cursor_image, hotspot, (x, y)
 
-#def get_cursor():
-#    # Initialize CURSORINFO
-#    cursor_info = CURSORINFO()
-#    cursor_info.cbSize = ctypes.sizeof(CURSORINFO)
-#    if not ctypes.windll.user32.GetCursorInfo(ctypes.byref(cursor_info)):
-#        return None, None, None
-#
-#    hicon = cursor_info.hCursor
-#    if not hicon:
-#        return None, None, None
-#
-#    # Get cursor position
-#    x, y = cursor_info.ptScreenPos.x, cursor_info.ptScreenPos.y
-#
-#    # Get ICONINFO
-#    icon_info = ICONINFO()
-#    if not ctypes.windll.user32.GetIconInfo(hicon, ctypes.byref(icon_info)):
-#        return None, None, None
-#
-#    hotspot = (icon_info.xHotspot, icon_info.yHotspot)
-#
-#    # Get cursor size
-#    cursor_w = ctypes.windll.user32.GetSystemMetrics(13)  # SM_CXCURSOR = 13
-#    cursor_h = ctypes.windll.user32.GetSystemMetrics(14)  # SM_CYCURSOR = 14
-#
-#    # Create a compatible DC and bitmap
-#    hdc = ctypes.windll.user32.GetDC(None)
-#    if not hdc:
-#        print("GetDC failed.")
-#        return None, None, None
-#
-#    mem_dc = ctypes.windll.gdi32.CreateCompatibleDC(hdc)
-#    if not mem_dc:
-#        print("CreateCompatibleDC failed.")
-#        ctypes.windll.user32.ReleaseDC(None, hdc)
-#        return None, None, None
-#
-#    hbitmap = ctypes.windll.gdi32.CreateCompatibleBitmap(hdc, cursor_w, cursor_h)
-#    if not hbitmap:
-#        print("CreateCompatibleBitmap failed.")
-#        ctypes.windll.gdi32.DeleteDC(mem_dc)
-#        ctypes.windll.user32.ReleaseDC(None, hdc)
-#        return None, None, None
-#
-#    old_obj = ctypes.windll.gdi32.SelectObject(mem_dc, hbitmap)
-#    if not old_obj:
-#        print("SelectObject failed.")
-#        ctypes.windll.gdi32.DeleteObject(hbitmap)
-#        ctypes.windll.gdi32.DeleteDC(mem_dc)
-#        ctypes.windll.user32.ReleaseDC(None, hdc)
-#        return None, None, None
-#
-#    # Fill the background with transparency (optional)
-#    ctypes.windll.gdi32.SetBkMode(mem_dc, 1)  # TRANSPARENT
-#
-#    # Draw the cursor into the memory DC
-#    if not ctypes.windll.user32.DrawIconEx(
-#        mem_dc,
-#        0,
-#        0,
-#        hicon,
-#        cursor_w,
-#        cursor_h,
-#        0,
-#        None,
-#        0x0003  # DI_NORMAL
-#    ):
-#        print("DrawIconEx failed.")
-#        ctypes.windll.gdi32.SelectObject(mem_dc, old_obj)
-#        ctypes.windll.gdi32.DeleteObject(hbitmap)
-#        ctypes.windll.gdi32.DeleteDC(mem_dc)
-#        ctypes.windll.user32.ReleaseDC(None, hdc)
-#        return None, None, None
-#
-#    # Prepare bitmap info
-#    bmi = BITMAPINFO()
-#    bmi.bmiHeader.biSize = ctypes.sizeof(BITMAPINFOHEADER)
-#    bmi.bmiHeader.biWidth = cursor_w
-#    bmi.bmiHeader.biHeight = -cursor_h  # Negative for top-down DIB
-#    bmi.bmiHeader.biPlanes = 1
-#    bmi.bmiHeader.biBitCount = 32
-#    bmi.bmiHeader.biCompression = BI_RGB
-#
-#    buf_size = cursor_w * cursor_h * 4
-#    buffer = (ctypes.c_byte * buf_size)()
-#
-#    res = ctypes.windll.gdi32.GetDIBits(
-#        mem_dc,
-#        hbitmap,
-#        0,
-#        cursor_h,
-#        buffer,
-#        ctypes.byref(bmi),
-#        DIB_RGB_COLORS
-#    )
-#    if res == 0:
-#        print("GetDIBits failed.")
-#        ctypes.windll.gdi32.SelectObject(mem_dc, old_obj)
-#        ctypes.windll.gdi32.DeleteObject(hbitmap)
-#        ctypes.windll.gdi32.DeleteDC(mem_dc)
-#        ctypes.windll.user32.ReleaseDC(None, hdc)
-#        return None, None, None
-#
-#    # Create PIL Image from buffer
-#    image = Image.frombuffer('RGBA', (cursor_w, cursor_h), buffer, 'raw', 'BGRA', 0, 1)
-#
-#    # Clean up
-#    ctypes.windll.gdi32.SelectObject(mem_dc, old_obj)
-#    ctypes.windll.gdi32.DeleteObject(hbitmap)
-#    ctypes.windll.gdi32.DeleteDC(mem_dc)
-#    ctypes.windll.user32.ReleaseDC(None, hdc)
-#    ctypes.windll.gdi32.DeleteObject(icon_info.hbmColor)
-#    ctypes.windll.gdi32.DeleteObject(icon_info.hbmMask)
-#
-#    return image, hotspot, (x, y)
 
 def get_cursor():
     # Initialize CURSORINFO
@@ -3111,342 +3339,10 @@ def listen_to_keyboard():
     while True:
         event = keyboard.read_event()
         if event.event_type == keyboard.KEY_DOWN:
-            with lock:
+            with last_key_lock:
                 last_key = event.name
 
 
-
-
-
-# Function to add a grid with color-coded tiles and labeled coordinates
-
-
-
-
-#def draw_cursor(draw, cursor_position, cursor_size):
-#    # Define colors
-#    outer_color = "black"
-#    inner_color = "white"
-#    large_circle_color = "red"
-#    medium_circle_color = "red"
-#    small_circle_color = "blue"
-#
-#    # Outer rectangle (black outline)
-#    outer_rectangle = [cursor_position.x - 1, cursor_position.y - 1, cursor_position.x + cursor_size + 1, cursor_position.y + cursor_size + 1]
-#    draw.rectangle(outer_rectangle, outline=outer_color, fill=outer_color)
-#
-#    # Inner rectangle (white cursor)
-#    inner_rectangle = [cursor_position.x, cursor_position.y, cursor_position.x + cursor_size, cursor_position.y + cursor_size]
-#    draw.rectangle(inner_rectangle, outline=inner_color, fill=inner_color)
-#
-#    # Draw an 'X' inside the rectangle
-#    draw.line([cursor_position.x, cursor_position.y, cursor_position.x + cursor_size, cursor_position.y + cursor_size], fill=outer_color)
-#    draw.line([cursor_position.x, cursor_position.y + cursor_size, cursor_position.x + cursor_size, cursor_position.y], fill=outer_color)
-#
-#    # Draw the red circle around the cursor
-#    large_radius = cursor_size + 3  # Adjust the radius as needed
-#    large_circle_bounds = [cursor_position.x - large_radius, cursor_position.y - large_radius, cursor_position.x + cursor_size + large_radius, cursor_position.y + cursor_size + large_radius]
-#    draw.ellipse(large_circle_bounds, outline=large_circle_color, width=2)
-#
-#    # Calculate the center of the square
-#    center_x = cursor_position.x + cursor_size / 2
-#    center_y = cursor_position.y + cursor_size / 2
-#
-#    # Draw the medium red circle that the box fits into perfectly
-#    medium_radius = (cursor_size / 2) * (2 ** 0.5)  # sqrt(2) times the half size of the square
-#    medium_circle_bounds = [center_x - medium_radius, center_y - medium_radius, center_x + medium_radius, center_y + medium_radius]
-#    draw.ellipse(medium_circle_bounds, outline=medium_circle_color, width=2)
-#
-#    # Draw the smaller blue circle that circumscribes the square reticle
-#    small_radius = cursor_size / 2
-#    small_circle_bounds = [center_x - small_radius, center_y - small_radius, center_x + small_radius, center_y + small_radius]
-#    draw.ellipse(small_circle_bounds, outline=small_circle_color, width=2)
-#
-#    # Add cursor coordinates with background
-#    screen_width, screen_height = draw.im.size
-#    text_color = "white"
-#    background_color = (0, 128, 0)  # Greenish background color
-#    background_opacity = 128
-#
-#    # Customize the font size
-#    font_size = 23
-#    # Load a TrueType font with the specified size
-#    try:
-#        font = ImageFont.truetype(FONT_PATH, font_size)
-#    except IOError:
-#        print("Font file not found. Falling back to default font.")
-#        font = ImageFont.load_default()  # Fallback to default font if TrueType font not found
-#
-#    # Calculate position for text
-#    shift_x, shift_y = 5, 20
-#    text_position = (cursor_position.x + shift_x, cursor_position.y + shift_y)
-#    if cursor_position.x + shift_x + 100 > screen_width:
-#        shift_x = -100  # Adjust shift to place text on the left
-#    if cursor_position.y + shift_y + 20 > screen_height:
-#        shift_y = -30  # Adjust shift to place text above
-#
-#    cursor_text = f"({cursor_position.x}, {cursor_position.y})"
-#    draw_text_with_background(draw, text_position, cursor_text, font, text_color, background_color, background_opacity, shift_x, shift_y)
-
-
-# Function to add the colored tile grid with only directional labels
-@time_logger
-def add_colored_tile_grid_v3(image, center_tile, tile_size, colors_x, colors_y):
-    
-    draw = ImageDraw.Draw(image)
-    
-        # Calculate half-tile offsets for proper grid alignment
-    half_tile_offset = (tile_size[0] // 2, tile_size[1] // 2)
-    # Apply a half-tile shift to center the grid
-    x_offset = -half_tile_offset[0]
-    y_offset = -half_tile_offset[1]
-
-    # Loop through the grid around the center tile
-    for i in range(-5, 6):  # Adjust the range for the grid size (5 tiles in each direction)
-        for j in range(-5, 6):
-            # Calculate the position of the current tile
-            tile_x = center_tile[0] + i * tile_size[0] + x_offset
-            tile_y = center_tile[1] + j * tile_size[1] + y_offset
-
-            # Determine the color for X and Y distances
-            color_x = colors_x[min(abs(i), len(colors_x) - 1)]
-            color_y = colors_y[min(abs(j), len(colors_y) - 1)]
-
-            # Draw the tile with the appropriate colors
-            draw_tile_with_colors(draw, tile_x, tile_y, tile_size, color_x, color_y)
-
-            # Label only the direct horizontal and vertical tiles (1-5 tiles away)
-            if i == 0 and j != 0:  # Vertical tiles (Up/Down)
-                label = f"{abs(j)}T" + ("U" if j < 0 else "D")
-                draw_text_with_background(draw, (tile_x + 5, tile_y - 15), label, font)
-            elif j == 0 and i != 0:  # Horizontal tiles (Left/Right)
-                label = f"{abs(i)}T" + ("L" if i < 0 else "R")
-                draw_text_with_background(draw, (tile_x + 5, tile_y - 15), label, font)
-
-
-
-# Helper function to draw the tiles with X/Y axis colors
-@time_logger
-def draw_tile_with_colors(draw, x, y, tile_size, color_x, color_y):
-    # Draw the left and right borders (X axis)
-    draw.line([(x, y), (x, y + tile_size[1])], fill=color_x, width=3)  # Left
-    draw.line([(x + tile_size[0], y), (x + tile_size[0], y + tile_size[1])], fill=color_x, width=3)  # Right
-
-    # Draw the top and bottom borders (Y axis)
-    draw.line([(x, y), (x + tile_size[0], y)], fill=color_y, width=3)  # Top
-    draw.line([(x, y + tile_size[1]), (x + tile_size[0], y + tile_size[1])], fill=color_y, width=3)  # Bottom
-
-
-@time_logger
-def draw_custom_cursor(draw, cursor_position, cursor_size):
-    # Define colors
-    outer_color = "black"
-    inner_color = "white"
-    large_circle_color = "red"
-    medium_circle_color = "red"
-    small_circle_color = "blue"
-
-    # Outer rectangle (black outline)
-    outer_rectangle = [
-        cursor_position.x - 1,
-        cursor_position.y - 1,
-        cursor_position.x + cursor_size + 1,
-        cursor_position.y + cursor_size + 1
-    ]
-    draw.rectangle(outer_rectangle, outline=outer_color, fill=outer_color)
-
-    # Inner rectangle (white cursor)
-    inner_rectangle = [
-        cursor_position.x,
-        cursor_position.y,
-        cursor_position.x + cursor_size,
-        cursor_position.y + cursor_size
-    ]
-    draw.rectangle(inner_rectangle, outline=inner_color, fill=inner_color)
-
-    # Draw an 'X' inside the rectangle
-    draw.line(
-        [
-            (cursor_position.x, cursor_position.y),
-            (cursor_position.x + cursor_size, cursor_position.y + cursor_size)
-        ],
-        fill=outer_color
-    )
-    draw.line(
-        [
-            (cursor_position.x, cursor_position.y + cursor_size),
-            (cursor_position.x + cursor_size, cursor_position.y)
-        ],
-        fill=outer_color
-    )
-
-    # Draw the red circles
-    center_x = cursor_position.x + cursor_size / 2
-    center_y = cursor_position.y + cursor_size / 2
-
-    large_radius = cursor_size + 3
-    large_circle_bounds = [
-        center_x - large_radius,
-        center_y - large_radius,
-        center_x + large_radius,
-        center_y + large_radius
-    ]
-    draw.ellipse(large_circle_bounds, outline=large_circle_color, width=2)
-
-    medium_radius = (cursor_size / 2) * (2 ** 0.5)
-    medium_circle_bounds = [
-        center_x - medium_radius,
-        center_y - medium_radius,
-        center_x + medium_radius,
-        center_y + medium_radius
-    ]
-    draw.ellipse(medium_circle_bounds, outline=medium_circle_color, width=2)
-
-    small_radius = cursor_size / 2
-    small_circle_bounds = [
-        center_x - small_radius,
-        center_y - small_radius,
-        center_x + small_radius,
-        center_y + small_radius
-    ]
-    draw.ellipse(small_circle_bounds, outline=small_circle_color, width=2)
-
-class CursorPosition:
-    def __init__(self, x, y):
-        self.x = x
-        self.y = y
-
-@time_logger
-def draw_cursor(draw, cursor_position, cursor_size, native_cursor=False, font=None, cursor_image=None,):
-    if not native_cursor:
-        # Draw the custom cursor
-        draw_custom_cursor(draw, cursor_position, cursor_size)
-    if native_cursor:
-        x=cursor_position[0]
-        y=cursor_position[1]
-        CursorPosition.x=x
-        CursorPosition.y=y
-        if cursor_image is None or cursor_image.getbbox() is None:
-            draw_custom_cursor(draw, pyautogui.position(), cursor_size)
-            # After getting the cursor image
-        #if cursor_image:
-        #    cursor_image.save('cursor_debug.png')
-            
-    # Always draw the cursor coordinates label
-    draw_cursor_label(draw, pyautogui.position(), font)
-
-# Helper function to draw text with background
-@time_logger
-def draw_text_with_background(draw, position, text, font, text_color="white", background_color=(0, 0, 0), background_opacity=128, shift_x=5, shift_y=20):
-    # Calculate text size
-    text_bbox = draw.textbbox(position, text, font=font)
-    text_width = text_bbox[2] - text_bbox[0]
-    text_height = text_bbox[3] - text_bbox[1]
-
-    # Set padding around the text
-    padding = 4
-
-    # Define the background rectangle position with shift
-    background_position = (
-        position[0] - padding + shift_x,
-        position[1] - padding + shift_y,
-        position[0] + text_width + padding + shift_x,
-        position[1] + text_height + padding + shift_y
-    )
-
-    # Create a transparent image for the background
-    background_image = Image.new('RGBA', draw.im.size, (0, 0, 0, 0))
-    background_draw = ImageDraw.Draw(background_image)
-    background_color_with_opacity = (background_color[0], background_color[1], background_color[2], background_opacity)
-    background_draw.rectangle(background_position, fill=background_color_with_opacity)
-
-    # Extract the alpha channel from the background image
-    alpha = background_image.split()[3]
-
-    # Composite the transparent background onto the original image using paste with a mask
-    bounding_box = (0, 0, draw.im.size[0], draw.im.size[1])
-    draw.im.paste(background_image.im, bounding_box, alpha.im)
-
-    # Draw the text over the background rectangle
-    draw.text((position[0] + shift_x, position[1] + shift_y), text, fill=text_color, font=font)
-
-@time_logger
-def draw_cursor_label(draw, cursor_position, font_size=12, shift_x=5, shift_y=20):
-    text_color = "white"
-    background_color = (0, 128, 0)  # Greenish background
-    background_opacity = 128
-    # Customize the font size
-    font_size = 23
-        # Load the font with the specified size
-    try:
-        font = ImageFont.truetype(FONT_PATH, font_size)
-    except IOError:
-        print("Font file not found. Falling back to default font.")
-        font = ImageFont.load_default()
-
-    cursor_text = f"({cursor_position.x}, {cursor_position.y})"
-    text_position = (cursor_position.x + shift_x, cursor_position.y + shift_y)
-
-    draw_text_with_background(
-        draw,
-        text_position,
-        cursor_text,
-        font,
-        text_color,
-        background_color,
-        background_opacity,
-        shift_x,
-        shift_y
-    )    
-
-# Function to add a dot grid with labeled coordinates
-@time_logger
-def add_dot_grid_with_labels(image, grid_interval, key_points):
-    draw = ImageDraw.Draw(image)
-
-    # Draw dots and coordinates on the key points
-    for x in range(0, image.size[0], grid_interval):
-        for y in range(0, image.size[1], grid_interval):
-            draw.ellipse((x-4, y-4, x+4, y+4), fill="red", outline="red")  # Draw the larger red dot
-            if (x == 0 or y == 0) or (x, y) in key_points:  # Label only top row, left column, and key points
-                coordinate_label = f"{x},{y}"
-                draw_text_with_background(draw, (x + 5, y - 15), coordinate_label, font, background_opacity=128)
-
-
-
-
-
-# Function to add grids, tiles, and labels
-@time_logger
-def add_grids_and_labels(screenshot, cursor_position, current_last_key):
-    draw = ImageDraw.Draw(screenshot)  # This creates the 'draw' object to work with the screenshot
-
-    add_dot_grid_with_labels(screenshot, grid_interval=150, key_points=[
-        (150, 150), (300, 750), (450, 150), 
-        (900, 150), (1200, 150),
-        (1050, 750), (1350, 300), (1350, 600),
-        (1350, 750)
-    ])
-
-    if enable_colored_tile_grid:
-        # Continue with your grid and tile drawing
-        add_colored_tile_grid_v3(screenshot, center_tile=(719, 444), tile_size=(162, 98),
-                                 colors_x=['blue', 'red', 'orange', 'yellow', 'purple', 'black'],
-                                 colors_y=['blue', 'red', 'orange', 'yellow', 'purple', 'black'])
-
-
-    # Customize the font size
-    font_size = 23
-    try:
-        font = ImageFont.truetype(FONT_PATH, font_size)
-    except IOError:
-        print("Font file not found. Falling back to default font.")
-        font = ImageFont.load_default()
-
-    # Draw text with background
-    text_position = (40, 55)  # Position of the text
-    text_info = f"Cursor Position: {cursor_position} | Last Key: {current_last_key} | Timestamp: {image_timestamp}"
-    draw_text_with_background(draw, text_position, text_info, font, background_opacity=128, shift_x=5, shift_y=20)
 
 
 # Function to handle sending the screenshot and user input
@@ -3474,112 +3370,140 @@ def handle_queued_input(screenshot_file_path, image_timestamp):
 
     # Use the function and provide a path to save the screenshot
     #capture_screenshot_with_cursor_info('screenshot_info.png')
+
+def scale_resolution(screenshot, target_width, target_height):
+    return screenshot.resize((target_width, target_height),  Image.LANCZOS)
+
+def scale_coordinates(x, y, scaling_factor_x, scaling_factor_y):
+    x = int(x * scaling_factor_x)
+    y = int(y * scaling_factor_y)
+    return x, y
+
+
 # Function to take a screenshot
 @time_logger
 def take_screenshot():
-    global last_key  # Ensure you are referring to the global variable updated by the listener thread
-    global image_timestamp
-    global queued_user_input
+    global last_key, image_timestamp
 
+    # Capture the screenshot
+    screenshot = ImageGrab.grab().convert('RGBA')
 
-    # Initialize variables to None
-    cursor_image = None
-    cursor_position = None
-    screenshot = None  # Initialize screenshot to None
+    # Original dimensions
+    original_width, original_height = screenshot.size
 
-    # Check if the third option for pyautogui native screenshot is enabled
+    # Calculate scaling factors
+    scaling_factor_x = target_width / original_width
+    scaling_factor_y = target_height / original_height
+
+    # Rescale the screenshot
+    screenshot = scale_resolution(screenshot, target_width, target_height)
+
+    # Get cursor position and scale it
+    cursor_x, cursor_y = pyautogui.position()
+    scaled_cursor_x, scaled_cursor_y = scale_coordinates(cursor_x, cursor_y, scaling_factor_x, scaling_factor_y)
+    cursor_position = CursorPosition(scaled_cursor_x, scaled_cursor_y)
+
+    # Handle native cursor screenshot option
     if screenshot_options.get("native_cursor_screenshot"):
-        # Capture entire screen with cursor using pyautogui.screenshot()
-        #screenshot = pyautogui.screenshot()
-        # Replace pyautogui.screenshot() with ImageGrab.grab()
-        screenshot = ImageGrab.grab()
+
+            # Draw dynamic elements
+        draw = ImageDraw.Draw(screenshot)
+
+        # Get cursor image, hotspot, and position
+        cursor_image, hotspot, cursor_position_raw = get_cursor()
+
+        # Handle native cursor screenshot option
+        if screenshot_options.get("native_cursor_screenshot"):
+            print("if screenshot options get native then drawcursor")
+            draw_cursor(draw, cursor_position, cursor_size, native_cursor=True, font=font_size)
+        else:
+            print("ELSE screenshot options ...")
+
+            draw_cursor(draw, cursor_position, cursor_size, native_cursor=False, font=font_size)
         mixer.music.load(speech_off_wav)
         mixer.music.play()
-        ###print(f"Screenshot mode: {screenshot.mode}")
-        ###print(f"Cursor image mode: {cursor_image.mode if cursor_image else 'None'}")
-        if cursor_image is not None:
-            if cursor_image.mode != screenshot.mode:
-                cursor_image = cursor_image.convert(screenshot.mode)
-        ###else:
-           ### print("Cursor image is None.")
 
-        # Get the mouse cursor's current position
-        #cursor_position = pyautogui.position()
-
-        # Get the cursor image, hotspot, and position
-        cursor_image, hotspot, cursor_position = get_cursor()
-        
+        if cursor_image is None and  cursor_image.getbbox() is None:
+            print("CURSOR IMAGE NONE ~~~~==== gBB NONE")
         if cursor_image is not None:
-            ###print("Have Cursor image")
-            # Calculate where to paste the cursor image on the screenshot
-            x = cursor_position[0] - hotspot[0]
-            y = cursor_position[1] - hotspot[1]
+            print("CURSOR IMAGE DETECTED!!!~~~~~===============")
+
+        if cursor_image is None and  cursor_image.getbbox() is not None:
+            print("CURSOR IMAGE NONE ~~~~==== BOUNDING BOX Detexted")
+            draw_custom_cursor(draw, cursor_position, cursor_size)
+
+        if cursor_image is not None and cursor_image.getbbox() is not None:
+            print("CURSOR IMAGE DETECTED!!!~~~~~======  BOUNDING BOX Detected")
+
+
+        if cursor_image is not None and cursor_image.getbbox() is None:
+            draw_custom_cursor(draw, cursor_position, cursor_size)
+            print("CURSOR IMAGE DETECTED!!!~~~~~ BUT NO BOUNDING BOX??????")
+
+
+        if cursor_image is not None:
+            # Scale cursor image
+            cursor_image = cursor_image.resize(
+                (int(cursor_image.width * scaling_factor_x), int(cursor_image.height * scaling_factor_y)),
+                Image.ANTIALIAS
+            )
+
+            # Scale cursor position and hotspot
+            cursor_position_raw = (
+                int(cursor_position_raw[0] * scaling_factor_x),
+                int(cursor_position_raw[1] * scaling_factor_y)
+            )
+            hotspot = (
+                int(hotspot[0] * scaling_factor_x),
+                int(hotspot[1] * scaling_factor_y)
+            )
+
+            # Calculate where to paste the cursor image
+            x = cursor_position_raw[0] - hotspot[0]
+            y = cursor_position_raw[1] - hotspot[1]
 
             # Paste the cursor image onto the screenshot with transparency
             screenshot.paste(cursor_image, (x, y), cursor_image)
         else:
             print("Could not capture cursor image.")
 
-        # Ensure thread-safe access to `last_key`
-        with lock:
-            current_last_key = last_key
+    # Apply the overlay after scaling
+    screenshot.paste(overlay, (0, 0), overlay)
 
-        # Draw additional elements if needed
-        draw = ImageDraw.Draw(screenshot)
+    # Adjust font size based on scaling factor
+    adjusted_font_size = max(int(font_size * scaling_factor_x), 10)
+    try:
+        font = ImageFont.truetype(FONT_PATH, adjusted_font_size)
+    except IOError:
+        print("Font file not found. Falling back to default font.")
+        font = ImageFont.load_default()
 
-        # Add grid, tiles, and text like before
-        add_grids_and_labels(screenshot, cursor_position, current_last_key)
-        draw_cursor(draw, cursor_position, cursor_size, True, 23, cursor_image)  # Optional custom cursor drawing
-        
-        # Draw cursor label only
-        #draw = ImageDraw.Draw(screenshot)
-        try:
-            font = ImageFont.truetype(FONT_PATH, 23)
-        except IOError:
-            print("Font file not found. Falling back to default font.")
-            font = ImageFont.load_default()
-    # First option: Capture current window (if implemented)
-    elif screenshot_options["current_window"]:
-        # Code to capture the current window snapshot
-        # This can be platform-specific and needs to be implemented
-        # You need to implement this option correctly or remove it if not used.
-        # For now, let's set it to the full-screen screenshot as a placeholder:
-        screenshot = ImageGrab.grab()  # Temporary fallback
-        pass
 
-    # Second option: Capture entire screen using ImageGrab
-    elif screenshot_options["entire_screen"]:
-        screenshot = ImageGrab.grab()
-        print(f"Screenshot mode: {screenshot.mode}")
-        #print(f"Cursor image mode: {cursor_image.mode if cursor_image else 'None'}")
-        #if cursor_image.mode != screenshot.mode:
-        #    cursor_image = cursor_image.convert(screenshot.mode)
-        # Get the mouse cursor's current position
-        cursor_position = pyautogui.position()
 
-        # Use the global last_key variable instead of reading the event here
-        with lock:
-            current_last_key = last_key
+    # Draw dynamic text
+    image_timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    text_info = f"Cursor Position: ({cursor_position.x}, {cursor_position.y}) | Last Key: {last_key} | Timestamp: {image_timestamp}"
+    draw_text_with_background(draw, (40, 55), text_info, font, background_opacity=128, shift_x=5, shift_y=20)
 
-        # Draw a representation of the cursor on the screenshot
-        draw = ImageDraw.Draw(screenshot)
-        draw_cursor(draw, cursor_position, cursor_size)
-
-        # Add grid, tiles, and text like before
-        add_grids_and_labels(screenshot, cursor_position, current_last_key)
-
-    # Save the screenshot, regardless of which option was used
-    current_time = datetime.datetime.now()
-    image_timestamp = current_time.strftime('%Y-%m-%d %H:%M:%S')
+    # Save the screenshot
     timestamp = int(time.time())
     screenshot_file_path = f"{logging_folder}/{timestamp}.png"
-    screenshot.save(screenshot_file_path)
+
+    with file_write_lock:
+        screenshot.save(screenshot_file_path)
+
     print(f"Screenshot saved at {screenshot_file_path} at {image_timestamp}")
-    #winsound.Beep(1000, 500)  # Frequency = 1000Hz, Duration = 500ms
-    mixer.music.load(chimeswav)
-    mixer.music.play()
+
     # Handle user input and send the screenshot
     handle_queued_input(screenshot_file_path, image_timestamp)
+
+    # Play chime
+    mixer.music.load(chimeswav)
+    mixer.music.play()
+
+
+
+
 
 
 
@@ -3598,8 +3522,6 @@ def initiate_and_handoff():
             # Optionally process the response_text further as needed
     except openai.error.InvalidRequestError as e:
         print(f"Error during initiation: {e}")
-
-
 
     init_handoff_in_progress = False
     #handoff_to_chatgpt()  #still need to work on this
