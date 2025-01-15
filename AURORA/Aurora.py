@@ -40,10 +40,42 @@ from colorama import Fore, Style
 import threading  # Ensure lock is available
 import cProfile
 import pstats
+from collections import deque
 
-time_interval = 0.05 # Time interval between screenshots (in seconds)
+command_queue = deque()
 
-API_KEY=                                                                                                                                                                                                                                                                                                                "sk-proj-SECRETKEY"
+# Retrieve the environment variable value
+API_KEY = os.getenv("OPENAI_2023_API_KEY")
+
+if not API_KEY:
+    raise ValueError("API key not found. Make sure the environment variable is set correctly.")
+global MAX_IMPORTANT_MESSAGES
+global MAX_UNIMPORTANT_MESSAGES
+
+
+#common toggles
+time_interval = 0.9 # Time interval between screenshots (in seconds)
+SEND_TO_MODEL = True  # Control sending text to the model
+# Global variable to enable or disable model responses
+ENABLE_MODEL_RESPONSES = True  # Set to False to disable model responses, send_to_model must be true
+INIT_MODE = 'load'  # Options: 'load', 'skip', 'test'
+#load will load from init.txt file, test will use the test init prompt, skip will void the pinned init message.
+# Define a default or test init prompt
+test_init_prompt = "This is a test init prompt. please describe what model you are and all images you see."
+
+init_prompt = ""  # Initialize to an empty string
+#image_detail =  "high"   # "low" or depending on your requirement
+image_detail =  "high"   #was low, "high" or depending on your requirement
+latest_image_detail = "high"  #was "high" for the latest image, "low" for older images
+# Define the High_Detail global variable
+MAX_IMAGES_IN_HISTORY = 15  #was 15 Global variable for the maximum number of images to retain
+global High_Detail
+High_Detail = 7  #was 7  Initialize to 0 or set as needed  pos for recent high detail, neg for last
+global Recent_images_High
+Recent_images_High= 7 #was 7
+MAX_IMPORTANT_MESSAGES = 100  # Example value
+MAX_UNIMPORTANT_MESSAGES = 100  # Example value
+
 POWER_WORD = ""
 REQUIRE_POWER_WORD = False
 chat_history = []
@@ -61,14 +93,14 @@ model_interval = 9999  # Switch to 'o1-preview' every 3 inferences
 hierarchical_tasks = []  # Global variable to store the hierarchical tasks
 
 
-CONTEXT_LENGTH = 25192  # or whatever the max token count for GPT-4 is
+CONTEXT_LENGTH = 205192  # or whatever the max token count for GPT-4 is
 disable_commands = False  # Global boolean variable to track whether command processing is currently disabled
 show_user_text = True
 show_ai_text = True
 hide_ai_commands = False
 hide_user_commands = False
 tokenizer = tiktoken.get_encoding("cl100k_base")
-token_limit = 18100  # Set this to whatever limit you want
+token_limit = 48100  # Set this to whatever limit you want
 token_counter = 0  # This will keep track of the tokens used so far
 character_name = "Aurora"
 last_interaction_time = time.time()
@@ -85,15 +117,7 @@ global CHECK_UMSGS_DECAY
 global CHECK_IMSGS_DECAY
 global userName
 global aiName
-# Global variable to enable or disable model responses
-ENABLE_MODEL_RESPONSES = True  # Set to False to disable model responses
-INIT_MODE = 'test'  # Options: 'load', 'skip', 'test'
-#load will load from init.txt file, test will use the test init prompt, skip will void the pinned init message.
-# Define a default or test init prompt
-test_init_prompt = "This is a test init prompt."
 
-init_prompt = ""  # Initialize to an empty string
-SEND_TO_MODEL = False  # Control sending text to the model
 # Load a TrueType font with the specified size
 
 # Customize the font size
@@ -113,15 +137,6 @@ hide_input = None
 global last_command
 last_command = None
 screen_width, screen_height = pyautogui.size()
-MAX_IMAGES_IN_HISTORY = 0  #was 15 Global variable for the maximum number of images to retain
-#image_detail =  "high"   # "low" or depending on your requirement
-image_detail =  "low"   #was low, "high" or depending on your requirement
-latest_image_detail = "low"  #was "high" for the latest image, "low" for older images
-# Define the High_Detail global variable
-global High_Detail
-High_Detail = 0  #was 7  Initialize to 0 or set as needed  pos for recent high detail, neg for last
-global Recent_images_High
-Recent_images_High= 0 #was 7
 
 image_timestamp = None
 last_key = None  # Initialize the global variable
@@ -130,10 +145,6 @@ mouse_position = {"x": 0, "y": 0}  # Initialize as a dictionary
 global queued_user_input
 queued_user_input = queue.Queue()
 
-global MAX_IMPORTANT_MESSAGES
-global MAX_UNIMPORTANT_MESSAGES
-MAX_IMPORTANT_MESSAGES = 100  # Example value
-MAX_UNIMPORTANT_MESSAGES = 100  # Example value
 IMGS_DECAY = 9999 # Setting the default decay time to 3 minutes for important messages
 UMSGS_DECAY = 3.55 # Setting the default decay time to 3 minutes for unimportant messages
 
@@ -164,9 +175,9 @@ image_history_lock = RLock()
 # Initialize a lock at the global level
 file_write_lock = threading.Lock()
 #queued_input_lock = RLock() #RLock? 
+command_queue_lock = threading.Lock()
 
-
-enable_colored_tile_grid = False  # Set to True if you want to enable it
+enable_colored_tile_grid = True  # Set to True if you want to enable it
 enable_unit_labels = False        # Set to True if you want to enable TU/RU/LU/DU labels
 
 
@@ -206,7 +217,10 @@ TARGET_RESOLUTIONS = {
     "WXGA": (1280, 800),    # 16:10 aspect ratio
     "HD+": (720, 1600),     # ~20:9 aspect ratio, common in budget smartphones
     "Full HD+": (1080, 2400), # ~20:9 aspect ratio, common in mid-range/high-end smartphones
-    "QHD+": (1440, 3200)    # ~20:9 aspect ratio, common in flagship smartphones
+    "QHD+": (1440, 3200),    # ~20:9 aspect ratio, common in flagship smartphones
+    "Sceptre_E20": (1600, 900), # my smaller display 
+    "LG+": (1920, 1080)  # my larger display -dead :'(
+
 }
 
 
@@ -353,7 +367,7 @@ def add_grids_and_labels(screenshot, cursor_position, current_last_key, scaling_
 
     if enable_colored_tile_grid:
         # Continue with your grid and tile drawing
-        add_colored_tile_grid_v3(screenshot, center_tile=(719, 444), tile_size=(162, 98),
+        add_colored_tile_grid_v3(screenshot, center_tile=(719*scaling_factor_x, 444*scaling_factor_y), tile_size=(162*scaling_factor_x, 98*scaling_factor_y),
                                  colors_x=['blue', 'red', 'orange', 'yellow', 'purple', 'black'],
                                  colors_y=['blue', 'red', 'orange', 'yellow', 'purple', 'black'])
 
@@ -372,6 +386,52 @@ def add_grids_and_labels(screenshot, cursor_position, current_last_key, scaling_
     draw_text_with_background(draw, text_position, text_info, font, background_opacity=128, shift_x=5, shift_y=20)
 
 
+
+# Helper function to draw the tiles with X/Y axis colors
+@time_logger
+def draw_tile_with_colors(draw, x, y, tile_size, color_x, color_y):
+    # Draw the left and right borders (X axis)
+    draw.line([(x, y), (x, y + tile_size[1])], fill=color_x, width=3)  # Left
+    draw.line([(x + tile_size[0], y), (x + tile_size[0], y + tile_size[1])], fill=color_x, width=3)  # Right
+
+    # Draw the top and bottom borders (Y axis)
+    draw.line([(x, y), (x + tile_size[0], y)], fill=color_y, width=3)  # Top
+    draw.line([(x, y + tile_size[1]), (x + tile_size[0], y + tile_size[1])], fill=color_y, width=3)  # Bottom
+
+
+# Function to add the colored tile grid with only directional labels
+@time_logger
+def add_colored_tile_grid_v3(image, center_tile, tile_size, colors_x, colors_y):
+    
+    draw = ImageDraw.Draw(image)
+    
+        # Calculate half-tile offsets for proper grid alignment
+    half_tile_offset = (tile_size[0] // 2, tile_size[1] // 2)
+    # Apply a half-tile shift to center the grid
+    x_offset = -2.2*half_tile_offset[0]    #had to fiddle w the offsets
+    y_offset = -2.6*half_tile_offset[1]    #had to fiddle w the offsets for new screen hmm 
+
+    # Loop through the grid around the center tile
+    for i in range(-5, 6):  # Adjust the range for the grid size (5 tiles in each direction)
+        for j in range(-5, 6):
+            # Calculate the position of the current tile
+            tile_x = center_tile[0] + i * tile_size[0] + x_offset
+            tile_y = center_tile[1] + j * tile_size[1] + y_offset
+
+            # Determine the color for X and Y distances
+            color_x = colors_x[min(abs(i), len(colors_x) - 1)]
+            color_y = colors_y[min(abs(j), len(colors_y) - 1)]
+
+            # Draw the tile with the appropriate colors
+            draw_tile_with_colors(draw, tile_x, tile_y, tile_size, color_x, color_y)
+
+            # Label only the direct horizontal and vertical tiles (1-5 tiles away)
+            if i == 0 and j != 0:  # Vertical tiles (Up/Down)
+                label = f"{abs(j)}T" + ("U" if j < 0 else "D")
+                draw_text_with_background(draw, (tile_x + 5, tile_y - 15), label, font)
+            elif j == 0 and i != 0:  # Horizontal tiles (Left/Right)
+                label = f"{abs(i)}T" + ("L" if i < 0 else "R")
+                draw_text_with_background(draw, (tile_x + 5, tile_y - 15), label, font)
 
 
 
@@ -395,12 +455,12 @@ def add_static_elements_to_overlay(draw_overlay, scaling_factor_x, scaling_facto
     # Draw static elements onto the overlay
     add_dot_grid_with_labels(overlay, key_points, font)
 #
-    if enable_colored_tile_grid:
-        add_colored_tile_grid_v3(overlay, center_tile=(int(719 * scaling_factor_x), int(444 * scaling_factor_y)),
-                                 tile_size=(int(162 * scaling_factor_x), int(98 * scaling_factor_y)),
-                                 colors_x=['blue', 'red', 'orange', 'yellow', 'purple', 'black'],
-                                 colors_y=['blue', 'red', 'orange', 'yellow', 'purple', 'black'])
-
+#    if enable_colored_tile_grid:
+#        add_colored_tile_grid_v3(overlay, center_tile=(int(719 * scaling_factor_x), int(444 * scaling_factor_y)),
+#                                 tile_size=(int(162 * scaling_factor_x), int(98 * scaling_factor_y)),
+#                                 colors_x=['blue', 'red', 'orange', 'yellow', 'purple', 'black'],
+#                                 colors_y=['blue', 'red', 'orange', 'yellow', 'purple', 'black'])
+#
 # Capture a temporary screenshot to get original dimensions
 temp_screenshot = ImageGrab.grab()
 original_width, original_height = temp_screenshot.size
@@ -457,52 +517,6 @@ except IOError:
 
 
 
-# Function to add the colored tile grid with only directional labels
-@time_logger
-def add_colored_tile_grid_v3(image, center_tile, tile_size, colors_x, colors_y):
-    
-    draw = ImageDraw.Draw(image)
-    
-        # Calculate half-tile offsets for proper grid alignment
-    half_tile_offset = (tile_size[0] // 2, tile_size[1] // 2)
-    # Apply a half-tile shift to center the grid
-    x_offset = -half_tile_offset[0]
-    y_offset = -half_tile_offset[1]
-
-    # Loop through the grid around the center tile
-    for i in range(-5, 6):  # Adjust the range for the grid size (5 tiles in each direction)
-        for j in range(-5, 6):
-            # Calculate the position of the current tile
-            tile_x = center_tile[0] + i * tile_size[0] + x_offset
-            tile_y = center_tile[1] + j * tile_size[1] + y_offset
-
-            # Determine the color for X and Y distances
-            color_x = colors_x[min(abs(i), len(colors_x) - 1)]
-            color_y = colors_y[min(abs(j), len(colors_y) - 1)]
-
-            # Draw the tile with the appropriate colors
-            draw_tile_with_colors(draw, tile_x, tile_y, tile_size, color_x, color_y)
-
-            # Label only the direct horizontal and vertical tiles (1-5 tiles away)
-            if i == 0 and j != 0:  # Vertical tiles (Up/Down)
-                label = f"{abs(j)}T" + ("U" if j < 0 else "D")
-                draw_text_with_background(draw, (tile_x + 5, tile_y - 15), label, font)
-            elif j == 0 and i != 0:  # Horizontal tiles (Left/Right)
-                label = f"{abs(i)}T" + ("L" if i < 0 else "R")
-                draw_text_with_background(draw, (tile_x + 5, tile_y - 15), label, font)
-
-
-
-# Helper function to draw the tiles with X/Y axis colors
-@time_logger
-def draw_tile_with_colors(draw, x, y, tile_size, color_x, color_y):
-    # Draw the left and right borders (X axis)
-    draw.line([(x, y), (x, y + tile_size[1])], fill=color_x, width=3)  # Left
-    draw.line([(x + tile_size[0], y), (x + tile_size[0], y + tile_size[1])], fill=color_x, width=3)  # Right
-
-    # Draw the top and bottom borders (Y axis)
-    draw.line([(x, y), (x + tile_size[0], y)], fill=color_y, width=3)  # Top
-    draw.line([(x, y + tile_size[1]), (x + tile_size[0], y + tile_size[1])], fill=color_y, width=3)  # Bottom
 
 
 @time_logger
@@ -1327,6 +1341,16 @@ is_known_command_prefixes = [
 def is_known_command(message):
     if message is None:
         return False
+    
+
+    # Check if the message is enclosed in quotes
+    if message.startswith('"') and message.endswith('"'):
+        return False
+
+    # Check if the message starts with an escape character
+    if message.startswith('\\'):
+        return False
+
     # Check if the message starts with any of the known command prefixes
         # Check if the message starts with any of the known command prefixes
     for prefix in is_known_command_prefixes:
@@ -1401,13 +1425,13 @@ def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp
         tasksning_prompt = "tasks: Please review and update your goals, inventory, and suggest next actions with reasoning."
         prompt = tasksning_prompt + "\n" + prompt
     else:
-        model_name = 'gpt-4o-mini'
+        model_name = 'gpt-4o-mini'   #gpt-4o-mini
 
        # if not is_important_message(prompt) and not init_handoff_in_progress:
         #    update_chat_history("user", prompt)
 
         messages = [
-            {"role": "system", "content": "You are a helpful assistant."}
+            {"role": "system", "content": "You are a helpful assistant playing pokemon & using a computer terminal via pyautogui commands and screenshots."}
         ]
                 # Check for pinned messages
                 # Add a default pinned message if none exists
@@ -1779,23 +1803,25 @@ def split_response_sections(response_text):
     return executed_commands.strip(), tasks_section.strip()
 
 def execute_immediate_actions(actions):
-    global recent_executed_actions
+    global command_queue
     for action in actions:
         command = action.get('command')
         if command and not command.startswith('TBD'):
-            handle_commands(command, is_user=False)
-            # Update recent executed actions
-            timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            recent_executed_actions.append({
-                'timestamp': timestamp,
-                'action': command,
-                'associated_goal': action.get('associated_goal', 'No specific goal')
-            })
-            # Keep only the last 7 executed actions
-            recent_executed_actions = recent_executed_actions[-7:]
+            # Add command to the queue
+            command_entry = {
+                'command': command,
+                'is_user': False,
+                'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'associated_goal': action.get('associated_goal', 'No specific goal'),
+            }
+            with command_queue_lock:
+                command_queue.append(command_entry)
         else:
             # Handle placeholders or general suggestions
-            continue  # Placeholders are not executed but inform future tasksning
+            continue  # Placeholders are not executed but inform future planning
+
+    # Update pinned information after adding new immediate actions
+    update_pinned_information()
 
 # Define the Goal class
 class Goal:
@@ -1920,13 +1946,20 @@ def update_pinned_information():
 
     # Create the pinned message entry
     pinned_message_content = {'type': 'text', 'text': pinned_text}
-    chat_history.append({
+    pinned_message_entry = {
         'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         'role': 'system',
         'token_count': None,
         'Exemption': 'PinnedInfo',
         'content': pinned_message_content
-    })
+    }
+
+    # Insert the pinned message entry into chat_history just before the most recent message
+    if chat_history:
+        chat_history.insert(len(chat_history) - 1, pinned_message_entry)
+    else:
+        # If chat_history is empty, just append the pinned message
+        chat_history.append(pinned_message_entry)
 
 # Function to add a goal
 def add_goal(goal_text, priority='No Priority', significance='No Significance'):
@@ -2139,7 +2172,32 @@ def get_user_input(Always_=None, hide_input=None):
 
 
 
-def human_like_click(x_pixel, y_pixel): #now with random effects to better bypass captchas
+#def mouse_easing_func(x_pixel, y_pixel): #now with random effects to better bypass captchas
+#    # Randomize the circle duration and radius slightly
+#    circle_duration = random.uniform(0.5, 1.5)
+#    circle_radius = random.uniform(5, 15)
+#    
+#    # Randomize starting angle
+#    start_angle = random.uniform(0, 2 * math.pi)
+#    
+#    start_time = time.time()
+#    while time.time() - start_time < circle_duration:
+#        # Increment the angle over time, adding small random noise
+#        angle = start_angle + ((time.time() - start_time) / circle_duration) * 2 * math.pi + random.uniform(-0.1, 0.1)
+#        x = x_pixel + math.cos(angle) * circle_radius
+#        y = y_pixel + math.sin(angle) * circle_radius
+#        
+#        # Move to the calculated position with a slight random duration
+#        pyautogui.moveTo(x, y, duration=random.uniform(0.05, 0.2))
+#    # Add a slight random delay before the final click
+#    time.sleep(random.uniform(0.1, 0.3))
+#    pyautogui.click(x_pixel, y_pixel)
+
+
+
+
+
+def mouse_easing_func(x_pixel, y_pixel):
     # Randomize the circle duration and radius slightly
     circle_duration = random.uniform(0.5, 1.5)
     circle_radius = random.uniform(5, 15)
@@ -2147,20 +2205,40 @@ def human_like_click(x_pixel, y_pixel): #now with random effects to better bypas
     # Randomize starting angle
     start_angle = random.uniform(0, 2 * math.pi)
     
+    # Add large variation to arc direction and radius
+    lopsided_offset = random.uniform(-circle_radius / 2, circle_radius / 2)
+    
     start_time = time.time()
     while time.time() - start_time < circle_duration:
         # Increment the angle over time, adding small random noise
         angle = start_angle + ((time.time() - start_time) / circle_duration) * 2 * math.pi + random.uniform(-0.1, 0.1)
-        x = x_pixel + math.cos(angle) * circle_radius
-        y = y_pixel + math.sin(angle) * circle_radius
+        
+        # Adjust the radius slightly for a more human-like effect
+        adjusted_radius = circle_radius + random.uniform(-3, 3)
+        adjusted_radius += math.sin(angle * 2) * lopsided_offset  # Adds bias to create a more human effect
+        
+        # Calculate x and y positions with slight random jitter for realism
+        x = x_pixel + math.cos(angle) * adjusted_radius + random.uniform(-1, 1)  # Micro jitter effect
+        y = y_pixel + math.sin(angle) * adjusted_radius + random.uniform(-1, 1)
         
         # Move to the calculated position with a slight random duration
         pyautogui.moveTo(x, y, duration=random.uniform(0.05, 0.2))
+    
+    # Add ultra-fine jitters when nearing the final target position
+    final_adjust_duration = 0.25  # Final quarter of the duration is for fine adjustments
+    if time.time() - start_time > (circle_duration * (1 - final_adjust_duration)):
+        x += random.uniform(-0.5, 0.5)
+        y += random.uniform(-0.5, 0.5)
+        pyautogui.moveTo(x, y, duration=random.uniform(0.05, 0.1))
+
+    # Occasionally overshoot the final position for more human-like behavior
+    if random.uniform(0, 1) < 0.1:  # 10% chance to overshoot slightly
+        pyautogui.moveTo(x_pixel + random.uniform(-5, 5), y_pixel + random.uniform(-5, 5), duration=random.uniform(0.05, 0.2))
+        time.sleep(random.uniform(0.05, 0.1))
+    
     # Add a slight random delay before the final click
     time.sleep(random.uniform(0.1, 0.3))
     pyautogui.click(x_pixel, y_pixel)
-
-    # Command Dispatch Dictionary
 
 
 
@@ -2529,6 +2607,78 @@ def toggle_imsgs_decay_check_command(args, is_user):
     status = 'ON' if CHECK_IMSGS_DECAY else 'OFF'
     display_message('system', f"Important messages decay check toggled to {status}.")
 
+# Move this function to where your other command handlers are defined
+def wait_command(args, is_user=True):
+    if not args:
+        display_message("error", "wait command requires one argument (seconds).")
+        return
+    try:
+        seconds = float(args[0].strip())
+        time.sleep(seconds)
+        display_message("system", f"Waited for {seconds} seconds.")
+    except ValueError:
+        display_message("error", "Invalid argument for wait command. Seconds must be a number.")
+
+
+def process_command_queue():
+    global command_queue, recent_executed_actions
+
+    while True:
+        with command_queue_lock:
+            if command_queue:
+                command_entry = command_queue.popleft()
+            else:
+                break  # Exit the loop if the queue is empty
+
+        command = command_entry['command']
+        is_user = command_entry['is_user']
+        timestamp = command_entry['timestamp']
+        associated_goal = command_entry.get('associated_goal', 'No specific goal')
+
+        # Extract command and arguments
+        if '(' in command and ')' in command:
+            cmd_name, args_str = command.split('(', 1)
+            args_str = args_str.rstrip(')')
+            args = [arg.strip() for arg in args_str.split(',') if arg.strip()]
+        else:
+            cmd_name = command
+            args = []
+
+        # Handle pyautogui commands separately
+        if cmd_name.startswith('pyag:'):
+            pyag_command = cmd_name[5:]
+            handle_pyautogui_command(pyag_command, args)
+                
+            # Print the executed command
+            display_message('system', f"Executed command: {pyag_command}")
+        else:
+            # Lookup the command in the command dispatch dictionary
+            handler = command_dispatch.get(cmd_name.strip().upper())
+
+            if handler:
+                try:
+                    handler(args, is_user)
+                    
+                    # Print the executed command
+                    display_message('system', f"Executed command: {cmd_name}")
+                except Exception as e:
+                    display_message("error", f"Error executing command '{cmd_name}': {e}")
+            else:
+                display_message("error", f"Unknown command: {cmd_name}")
+
+        # Update recent executed actions
+        recent_executed_actions.append({
+            'timestamp': timestamp,
+            'action': command,
+            'associated_goal': associated_goal
+        })
+        # Keep only the last 7 executed actions
+        recent_executed_actions = recent_executed_actions[-7:]
+
+    # Update pinned information after executing commands
+    update_pinned_information()
+
+
 @time_logger
 def handle_command_toggle(command):
     global disable_commands
@@ -2544,7 +2694,7 @@ def handle_command_toggle(command):
 
 
 def handle_commands(command_input, is_user=True, exemption=None, is_assistant=False):
-    global last_command
+    global last_command, command_queue, recent_executed_actions
     global disable_commands  # Add this since we're accessing it
 
     last_command = command_input
@@ -2564,37 +2714,18 @@ def handle_commands(command_input, is_user=True, exemption=None, is_assistant=Fa
             display_message("system", "Command processing is currently disabled.")
             return  # Or use 'continue' if you want to skip this command but process others
 
-        # Extract command and arguments
-        if '(' in command and ')' in command:
-            cmd_name, args_str = command.split('(', 1)
-            args_str = args_str.rstrip(')')
-            args = [arg.strip() for arg in args_str.split(',') if arg.strip()]
-        else:
-            cmd_name = command
-            args = []
+        # Instead of executing the command immediately, add it to the queue
+        command_entry = {
+            'command': command,
+            'is_user': is_user,
+            'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'associated_goal': 'No specific goal',  # Modify if you have goal association
+        }
+        with command_queue_lock:
+            command_queue.append(command_entry)
 
-            # Check if it's a known command
-        if not is_known_command(cmd_name):
-            # If it's not a known command, simply log it or pass without displaying an error
-            #print(f"Received non-command response: '{command_input}'")  # Debug log (optional)
-            continue    
-
-        # Handle pyautogui commands separately
-        if cmd_name.startswith('pyag:'):
-            pyag_command = cmd_name[5:]
-            handle_pyautogui_command(pyag_command, args)
-            continue
-
-        # Lookup the command in the command dispatch dictionary
-        handler = command_dispatch.get(cmd_name.strip().upper())
-
-        if handler:
-            try:
-                handler(args, is_user)
-            except Exception as e:
-                display_message("error", f"Error executing command '{cmd_name}': {e}")
-        else:
-            display_message("error", f"Unknown command: {cmd_name}")
+    # Update pinned information after adding new commands
+    update_pinned_information()
 
 
   
@@ -3035,6 +3166,7 @@ command_dispatch = {
     'TOGGLE_ADD_IMSGS_TO_HISTORY': toggle_add_imsgs_to_history_command,
     'TOGGLE_UMSGS_DECAY_CHECK': toggle_umsgs_decay_check_command,
     'TOGGLE_IMSGS_DECAY_CHECK': toggle_imsgs_decay_check_command,
+    'WAIT': wait_command,
     # Include any other command mappings as needed
 }
 
@@ -3445,7 +3577,7 @@ def take_screenshot():
             # Scale cursor image
             cursor_image = cursor_image.resize(
                 (int(cursor_image.width * scaling_factor_x), int(cursor_image.height * scaling_factor_y)),
-                Image.ANTIALIAS
+                Image.Resampling.LANCZOS #was ANTIALIAS
             )
 
             # Scale cursor position and hotspot
@@ -3625,7 +3757,8 @@ if not os.path.exists(logging_folder):
 
 
 
-
+# Schedule command processing every second
+schedule.every(.2).seconds.do(process_command_queue)
 #
 ## Schedule the screenshot taking function
 schedule.every(time_interval).seconds.do(take_screenshot)
