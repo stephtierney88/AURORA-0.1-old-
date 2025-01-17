@@ -41,24 +41,25 @@ import threading  # Ensure lock is available
 import cProfile
 import pstats
 from collections import deque
+from openai import OpenAI
 
 command_queue = deque()
 
 # Retrieve the environment variable value
 API_KEY = os.getenv("OPENAI_2023_API_KEY")
-
+client = OpenAI(api_key=API_KEY)
 if not API_KEY:
     raise ValueError("API key not found. Make sure the environment variable is set correctly.")
 global MAX_IMPORTANT_MESSAGES
 global MAX_UNIMPORTANT_MESSAGES
-
-
+#print(f"OpenAI version: {openai.__version__}")
+#print(f"OpenAI version: {openai.__version__}")
 #common toggles
 time_interval = 0.9 # Time interval between screenshots (in seconds)
 SEND_TO_MODEL = True  # Control sending text to the model
 # Global variable to enable or disable model responses
 ENABLE_MODEL_RESPONSES = True  # Set to False to disable model responses, send_to_model must be true
-INIT_MODE = 'load'  # Options: 'load', 'skip', 'test'
+INIT_MODE = 'test'  # Options: 'load', 'skip', 'test'
 #load will load from init.txt file, test will use the test init prompt, skip will void the pinned init message.
 # Define a default or test init prompt
 test_init_prompt = "This is a test init prompt. please describe what model you are and all images you see."
@@ -68,11 +69,11 @@ init_prompt = ""  # Initialize to an empty string
 image_detail =  "high"   #was low, "high" or depending on your requirement
 latest_image_detail = "high"  #was "high" for the latest image, "low" for older images
 # Define the High_Detail global variable
-MAX_IMAGES_IN_HISTORY = 15  #was 15 Global variable for the maximum number of images to retain
+MAX_IMAGES_IN_HISTORY = 4  #was 15 Global variable for the maximum number of images to retain
 global High_Detail
-High_Detail = 7  #was 7  Initialize to 0 or set as needed  pos for recent high detail, neg for last
+High_Detail = 2  #was 7  Initialize to 0 or set as needed  pos for recent high detail, neg for last
 global Recent_images_High
-Recent_images_High= 7 #was 7
+Recent_images_High= 2 #was 7
 MAX_IMPORTANT_MESSAGES = 100  # Example value
 MAX_UNIMPORTANT_MESSAGES = 100  # Example value
 
@@ -195,16 +196,16 @@ RESET = Style.RESET_ALL
 mixer.init()
 
 # Load different sounds for different stages
-chimeswav = "C:\Windows\Media\chimes.wav"
-chordwav = "C:\Windows\Media\chord.wav"
-alarm3 = "C:\Windows\Media\Alarm03.wav"
-alarm10 = "C:\Windows\Media\Alarm10.wav"
-tada_wav = "C:\Windows\Media\tada.wav"
-speech_off_wav = "C:\Windows\Media\Speech Off.wav"
-speech_on_wav = "C:\Windows\Media\Speech On.wav"
-speech_sleep_wav = "C:\Windows\Media\Speech Sleep.wav"
-winringin_wav = "C:\Windows\Media\Windows Ringin.wav"
-winunlock_wav= "C:\Windows\Media\Windows Unlock.wav"
+chimeswav = r"C:\Windows\Media\chimes.wav"
+chordwav = r"C:\Windows\Media\chord.wav"
+alarm3 = r"C:\Windows\Media\Alarm03.wav"
+alarm10 = r"C:\Windows\Media\Alarm10.wav"
+tada_wav = r"C:\Windows\Media\tada.wav"
+speech_off_wav = r"C:\Windows\Media\Speech Off.wav"
+speech_on_wav = r"C:\Windows\Media\Speech On.wav"
+speech_sleep_wav = r"C:\Windows\Media\Speech Sleep.wav"
+winringin_wav = r"C:\Windows\Media\Windows Ringin.wav"
+winunlock_wav= r"C:\Windows\Media\Windows Unlock.wav"
 
 mixer.music.set_volume(0.8)  # Set global volume, adjust as needed
 
@@ -686,22 +687,36 @@ def audio_callback(indata, frames, time_info, status):
                 audio_segment = audio_segment.set_sample_width(2)
 
                 write(temp_file.name, sampling_rate, audio_data.astype('float32'))
-                response = openai.Audio.transcribe(
-                    api_key=API_KEY,
-                    model="whisper-1",
-                    file=open(temp_file.name, "rb")
-                )
+                try:
+                    response = client.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=open(temp_file.name, "rb")
+    )
+                except openai.OpenAIError as e:
+                    print(f"Error transcribing audio: {e}")
+                    return
+
             print("My Response: ", response)     
 
             # Assuming the transcribed text is in `response['text']`
-            transcribed_text = response['text']
+            transcribed_text = response.text.strip()  # Strip whitespace once here #response.text #response['text']  new api changed to the Whisper API response is likely a dictionary-like object, and the code is attempting to access it incorrectly.
+            print("My Transcribed_Text: ", transcribed_text)     
 
             # Check if sending text to model is enabled
             if SEND_TO_MODEL:
                 # Put the transcribed text into the queue
+
+                print("SENDING TO MODEL AUDIO:", response)
+            # Check if transcribed text is valid and send to the queue
+            if transcribed_text:
                 queued_user_input.put(transcribed_text)
+                print("Transcribed text added to queue:", transcribed_text)
             else:
+                print("Transcribed text is empty; ignoring.")
+            
                 print("Sending text to model is disabled. Ignoring transcribed text.")
+            # Check if the transcribed text is not empty before adding it to the queue
+
 
             audio_buffer.clear()  
     else:
@@ -1491,14 +1506,14 @@ def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp
             messages.append({
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": f"User input: {queued_user_input}"},
+                    {"type": "text", "text": f"User input: {prompt}"},  #for some reason i was passing the queue obj, prob an accidental change...
                     {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}", "detail": image_detail}}
                 ]
             })
 
             # Update chat history once for both the image and the prompt if exemption is not "queued"
             if exemption != "queued":
-                update_chat_history("user", queued_user_input, image_path=image_path, image_timestamp=image_timestamp, sticky=sticky)
+                update_chat_history("user", prompt, image_path=image_path, image_timestamp=image_timestamp, sticky=sticky) #for some reason i was passing the queue obj, prob an accidental change...
 
         elif image_path:
             # Set the detail level for the latest image
@@ -1558,25 +1573,51 @@ def send_prompt_to_chatgpt(prompt, role="user", image_path=None, image_timestamp
            #"detail": image_detail  # Add the detail parameter here
         }
     
-        # Make the POST request
-        response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
 
-        # Check for successful status code
-        if response.status_code == 200:
-            response_data = response.json()
-            ai_response = response_data['choices'][0]['message']['content'].strip()
-            
+        # Use the OpenAI client object to create the chat completion
+        try:
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                max_tokens=1937,
+                temperature=0.5
+            )
+
+            # Extract the AI's response
+            ai_response = response.choices[0].message.content.strip()
 
             # Display and update chat history with AI's response
             display_message("assistant", ai_response)
             update_chat_history("assistant", ai_response)
             print("meow")
-            #print(chat_history)
+            print(ai_response)
             print("NYAN")
-
             process_assistant_response(ai_response)
             return ai_response
-                # Here you check if the AI's response is a command and handle it
+
+        except openai.OpenAIError as e:
+            print(f"OpenAI API error: {e}")
+            return None
+
+      # # Make the POST request
+      # response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
+#
+      # # Check for successful status code
+      # if response.status_code == 200:
+      #     response_data = response.json()
+      #     ai_response = response_data['choices'][0]['message']['content'].strip()
+      #     
+#
+      #     # Display and update chat history with AI's response
+      #     display_message("assistant", ai_response)
+      #     update_chat_history("assistant", ai_response)
+      #     print("meow")
+      #     #print(chat_history)
+      #     print("NYAN")
+#
+      #     process_assistant_response(ai_response)
+      #     return ai_response
+               # Here you check if the AI's response is a command and handle it
            # if is_command(ai_response):
            #     handle_commands(ai_response, is_user=False)
             #else:
@@ -2145,6 +2186,9 @@ def user_input_handler():
         else:
             #Instead of sending the input to ChatGPT, queue it for the next screenshot
             # Instead of sending the input to ChatGPT, queue it for the next screenshot
+            print("meow user_input")
+            print(user_input)
+            print(" user_input NYAN")
             queued_user_input.put(user_input)
             #send_prompt_to_chatgpt(user_input)
             #send_prompt_to_chatgpt(response_text)
@@ -3480,20 +3524,42 @@ def listen_to_keyboard():
 # Function to handle sending the screenshot and user input
 def handle_queued_input(screenshot_file_path, image_timestamp):
     global queued_user_input
+    print("handle_queued_input triggered.")
+    print(f"screenshot_file_path: {screenshot_file_path}, image_timestamp: {image_timestamp}")
 
+    # Debug: Check the state of the queue
+    print(f"Queue size before processing: {queued_user_input.qsize()}")
     combined_input_list = []
     while not queued_user_input.empty():
-        combined_input_list.append(queued_user_input.get())
-
+        next_item = queued_user_input.get() #for debugging only
+        print(f"Processing user input from queue: {next_item}")
+        combined_input_list.append(next_item)
+        print(f"Queue size after processing: {queued_user_input.qsize()}") 
+        #combined_input_list.append(queued_user_input.get())
+        print(f"Combined input list: {combined_input_list}")
     if combined_input_list and SEND_TO_MODEL:
+        print(f"Combined input sent to model: {' '.join(combined_input_list)}")
         combined_input = ' '.join(combined_input_list)
         prompt = f"user input: {combined_input}"
+        print(f"Sending combined input to ChatGPT: {prompt}")
         send_prompt_to_chatgpt(prompt, role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
     else:
+
+        if not combined_input_list:
+            print("No user input found in the queue.")
+
         # Decide whether to send the screenshot without text or skip sending
         if SEND_TO_MODEL:
+            print("Sending default prompt with the screenshot.")
             # Send a default prompt with the screenshot
             send_prompt_to_chatgpt("System: Screenshot taken. Please provide instructions...", role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
+        else:
+            print("SEND_TO_MODEL is disabled. Skipping sending input or screenshot.")        
+        
+
+    # Debug: Confirm function completion
+    print("handle_queued_input completed.")
+        
         ###else:
             # If not sending text to the model, perhaps send only the image
             #send_prompt_to_chatgpt("", role="user", image_path=screenshot_file_path, image_timestamp=image_timestamp)
